@@ -12,8 +12,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import json, asyncio, logging
 import hmac, hashlib, base64, time, secrets
 from datetime import datetime, timezone
+
 from typing import Optional
-from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore.exceptions import ClientError
@@ -39,9 +39,8 @@ from agent.nodes import (
 )
 
 logging.basicConfig(level=logging.INFO)
-logger   = logging.getLogger(__name__)
-app      = FastAPI(title="CFN Drift Fixer")
-executor = ThreadPoolExecutor(max_workers=4)
+logger = logging.getLogger(__name__)
+app    = FastAPI(title="CFN Drift Fixer")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,6 +52,23 @@ app.add_middleware(
 active_runs:    dict = {}
 run_logs:       dict = {}
 pending_states: dict = {}   # run_id -> DriftFixState paused right after plan_remediation
+
+# active_runs/run_logs live for the process's lifetime (this is a long-running
+# server, not a per-invocation Lambda) — without eviction they grow without
+# bound as scans accumulate. Cap how many finished runs we keep in memory;
+# in-flight runs (RUNNING/AWAITING_APPROVAL/APPLYING) are never evicted.
+MAX_RETAINED_RUNS = 200
+_TERMINAL_STATUSES = {"COMPLETE", "ERROR"}
+
+
+def _evict_old_runs() -> None:
+    terminal = [rid for rid, r in active_runs.items() if r.get("status") in _TERMINAL_STATUSES]
+    if len(terminal) <= MAX_RETAINED_RUNS:
+        return
+    terminal.sort(key=lambda rid: active_runs[rid].get("started_at", ""))
+    for rid in terminal[:len(terminal) - MAX_RETAINED_RUNS]:
+        active_runs.pop(rid, None)
+        run_logs.pop(rid, None)
 
 REGION     = os.environ.get("AWS_REGION", "ap-south-1")
 AUDIT_TABLE = os.environ.get("DYNAMODB_AUDIT_TABLE", "cfn-drift-audit")
@@ -183,7 +199,7 @@ async def whoami(request: Request):
     """
     identity = {"account": None, "arn": None, "user_id": None, "error": None}
     try:
-        who = sts_client.get_caller_identity()
+        who = await asyncio.to_thread(sts_client.get_caller_identity)
         identity = {"account": who.get("Account"), "arn": who.get("Arn"), "user_id": who.get("UserId"), "error": None}
     except ClientError as e:
         identity["error"] = str(e)
@@ -212,25 +228,30 @@ async def whoami(request: Request):
 
 # ── AWS: Stacks ───────────────────────────────────────────────────────────────
 
+def _list_stacks_sync() -> list:
+    pages = cfn_client.get_paginator("list_stacks").paginate(
+        StackStatusFilter=[
+            "CREATE_COMPLETE", "UPDATE_COMPLETE",
+            "UPDATE_ROLLBACK_COMPLETE", "IMPORT_COMPLETE",
+        ]
+    )
+    stacks = []
+    for page in pages:
+        for s in page.get("StackSummaries", []):
+            stacks.append({
+                "name":         s["StackName"],
+                "status":       s["StackStatus"],
+                "drift_status": s.get("DriftInformation", {}).get("StackDriftStatus", "NOT_CHECKED"),
+                "last_updated": str(s.get("LastUpdatedTime", s.get("CreationTime", ""))),
+            })
+    return stacks
+
+
 @app.get("/api/stacks")
 async def list_stacks():
     """List all real CFN stacks from AWS with drift status."""
     try:
-        pages = cfn_client.get_paginator("list_stacks").paginate(
-            StackStatusFilter=[
-                "CREATE_COMPLETE", "UPDATE_COMPLETE",
-                "UPDATE_ROLLBACK_COMPLETE", "IMPORT_COMPLETE",
-            ]
-        )
-        stacks = []
-        for page in pages:
-            for s in page.get("StackSummaries", []):
-                stacks.append({
-                    "name":         s["StackName"],
-                    "status":       s["StackStatus"],
-                    "drift_status": s.get("DriftInformation", {}).get("StackDriftStatus", "NOT_CHECKED"),
-                    "last_updated": str(s.get("LastUpdatedTime", s.get("CreationTime", ""))),
-                })
+        stacks = await asyncio.to_thread(_list_stacks_sync)
         return {"stacks": stacks, "region": REGION}
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -240,7 +261,7 @@ async def list_stacks():
 async def get_stack(stack_name: str):
     """Get details for a single stack."""
     try:
-        resp  = cfn_client.describe_stacks(StackName=stack_name)
+        resp  = await asyncio.to_thread(cfn_client.describe_stacks, StackName=stack_name)
         stack = resp["Stacks"][0]
         return {
             "name":         stack["StackName"],
@@ -267,7 +288,7 @@ async def get_stack_drift_details(stack_name: str):
     just by clicking a badge, unlike /api/scan which runs the full agent.
     """
     try:
-        resources = get_drifted_resources(stack_name, REGION)
+        resources = await asyncio.to_thread(get_drifted_resources, stack_name, REGION)
         return {"stack_name": stack_name, "drifted_resources": resources, "count": len(resources)}
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -278,6 +299,7 @@ async def get_stack_drift_details(stack_name: str):
 @app.post("/api/scan")
 async def scan_stack(request: ScanRequest, background_tasks: BackgroundTasks):
     """Trigger real agent run on a stack."""
+    _evict_old_runs()
     run_id = f"{request.stack_name}-{int(datetime.now().timestamp())}"
     active_runs[run_id] = {
         "status":     "RUNNING",
@@ -378,30 +400,35 @@ async def approve_run(run_id: str, request: ApprovalRequest, background_tasks: B
 
 # ── AWS: Audit Trail ──────────────────────────────────────────────────────────
 
+def _get_audit_sync(stack_name: Optional[str], limit: int) -> list:
+    table = dynamodb_rc.Table(AUDIT_TABLE)
+    if stack_name:
+        resp = table.query(
+            KeyConditionExpression="PK = :pk",
+            ExpressionAttributeValues={":pk": f"STACK#{stack_name}"},
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+    else:
+        resp = table.scan(Limit=limit)
+    items = resp.get("Items", [])
+    # Convert Decimal to int/float for JSON
+    for item in items:
+        for k, v in item.items():
+            try:
+                from decimal import Decimal
+                if isinstance(v, Decimal):
+                    item[k] = int(v)
+            except Exception:
+                pass
+    return items
+
+
 @app.get("/api/audit")
 async def get_audit(stack_name: Optional[str] = None, limit: int = 20):
     """Read real audit records from DynamoDB."""
     try:
-        table    = dynamodb_rc.Table(AUDIT_TABLE)
-        if stack_name:
-            resp = table.query(
-                KeyConditionExpression="PK = :pk",
-                ExpressionAttributeValues={":pk": f"STACK#{stack_name}"},
-                ScanIndexForward=False,
-                Limit=limit,
-            )
-        else:
-            resp = table.scan(Limit=limit)
-        items = resp.get("Items", [])
-        # Convert Decimal to int/float for JSON
-        for item in items:
-            for k, v in item.items():
-                try:
-                    from decimal import Decimal
-                    if isinstance(v, Decimal):
-                        item[k] = int(v)
-                except Exception:
-                    pass
+        items = await asyncio.to_thread(_get_audit_sync, stack_name, limit)
         return {"records": items, "count": len(items)}
     except ClientError as e:
         return {"records": [], "error": str(e)}
@@ -409,13 +436,16 @@ async def get_audit(stack_name: Optional[str] = None, limit: int = 20):
 
 # ── AWS: Metrics ──────────────────────────────────────────────────────────────
 
+def _scan_audit_sync(scan_limit: int) -> list:
+    table = dynamodb_rc.Table(AUDIT_TABLE)
+    return table.scan(Limit=scan_limit).get("Items", [])
+
+
 @app.get("/api/metrics")
 async def get_metrics():
     """Real metrics from DynamoDB audit table."""
     try:
-        table     = dynamodb_rc.Table(AUDIT_TABLE)
-        resp      = table.scan(Limit=200)
-        items     = resp.get("Items", [])
+        items     = await asyncio.to_thread(_scan_audit_sync, 200)
         total     = len(items)
         validated = sum(1 for i in items if i.get("fix_status") == "VALIDATED")
         failed    = sum(1 for i in items if i.get("fix_status") == "FAILED")
@@ -451,7 +481,7 @@ async def get_safety():
         "/cfn-drift-fixer/circuit-breaker-count",
     ]
     result = {name.split("/")[-1].replace("-", "_"): ("0" if "count" in name else "false") for name in params}
-    resp = ssm_client.get_parameters(Names=params)
+    resp = await asyncio.to_thread(ssm_client.get_parameters, Names=params)
     for p in resp.get("Parameters", []):
         key = p["Name"].split("/")[-1].replace("-", "_")
         result[key] = p["Value"]
@@ -461,7 +491,8 @@ async def get_safety():
 @app.post("/api/safety/kill-switch")
 async def set_kill_switch(active: bool):
     """Toggle kill switch in SSM."""
-    ssm_client.put_parameter(
+    await asyncio.to_thread(
+        ssm_client.put_parameter,
         Name="/cfn-drift-fixer/kill-switch",
         Value="true" if active else "false",
         Type="String", Overwrite=True,
@@ -469,14 +500,18 @@ async def set_kill_switch(active: bool):
     return {"kill_switch": active}
 
 
-@app.post("/api/safety/change-freeze")
-async def set_change_freeze(active: bool, reason: str = "Manual freeze from dashboard"):
-    """Toggle change freeze in SSM."""
+def _set_change_freeze_sync(active: bool, reason: str) -> None:
     ssm_client.put_parameter(Name="/cfn-drift-fixer/change-freeze",
                       Value="true" if active else "false", Type="String", Overwrite=True)
     if active:
         ssm_client.put_parameter(Name="/cfn-drift-fixer/change-freeze-reason",
                           Value=reason, Type="String", Overwrite=True)
+
+
+@app.post("/api/safety/change-freeze")
+async def set_change_freeze(active: bool, reason: str = "Manual freeze from dashboard"):
+    """Toggle change freeze in SSM."""
+    await asyncio.to_thread(_set_change_freeze_sync, active, reason)
     return {"change_freeze": active, "reason": reason}
 
 
