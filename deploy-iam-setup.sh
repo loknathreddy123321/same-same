@@ -23,6 +23,7 @@ cat > app-policy.json << EOF
       "Sid": "CfnDrift",
       "Effect": "Allow",
       "Action": [
+        "cloudformation:ListStacks",
         "cloudformation:DetectStackDrift",
         "cloudformation:DetectStackResourceDrift",
         "cloudformation:DescribeStackDriftDetectionStatus",
