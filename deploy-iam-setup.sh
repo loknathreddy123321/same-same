@@ -6,7 +6,7 @@ set -e
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 REGION=ap-south-1
 
-cat > /tmp/trust-policy.json << 'EOF'
+cat > trust-policy.json << 'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -15,7 +15,7 @@ cat > /tmp/trust-policy.json << 'EOF'
 }
 EOF
 
-cat > /tmp/app-policy.json << EOF
+cat > app-policy.json << EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -80,12 +80,12 @@ cat > /tmp/app-policy.json << EOF
 EOF
 
 aws iam create-role --role-name cfn-drift-fixer-ec2-role \
-  --assume-role-policy-document file:///tmp/trust-policy.json \
+  --assume-role-policy-document file://trust-policy.json \
   --description "CFN Drift Fixer dashboard/agent running on EC2" --region "$REGION"
 
 aws iam put-role-policy --role-name cfn-drift-fixer-ec2-role \
   --policy-name cfn-drift-fixer-app-policy \
-  --policy-document file:///tmp/app-policy.json
+  --policy-document file://app-policy.json
 
 aws iam attach-role-policy --role-name cfn-drift-fixer-ec2-role \
   --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
@@ -95,6 +95,8 @@ aws iam create-instance-profile --instance-profile-name cfn-drift-fixer-ec2-prof
 aws iam add-role-to-instance-profile \
   --instance-profile-name cfn-drift-fixer-ec2-profile \
   --role-name cfn-drift-fixer-ec2-role
+
+rm -f trust-policy.json app-policy.json
 
 echo ""
 echo "Done. Waiting 10s for IAM propagation..."

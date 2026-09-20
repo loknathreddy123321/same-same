@@ -17,3 +17,6 @@ venv/
 {src/
 node_modules/
 dashboard/node_modules/
+trust-policy.json
+app-policy.json
+jenkins-policy.json
