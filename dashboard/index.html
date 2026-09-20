@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CFDF — CFN Drift Fixer</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#04070F;
+  --bg2:#080E1A;
+  --bg3:#0C1424;
+  --panel:#0F1929;
+  --panel2:#131F30;
+  --border:rgba(0,229,200,0.08);
+  --border2:rgba(0,229,200,0.15);
+  --cyan:#00E5C8;
+  --cyan2:#00B8A0;
+  --cyan-dim:rgba(0,229,200,0.12);
+  --red:#FF4D6A;
+  --red-dim:rgba(255,77,106,0.12);
+  --amber:#FFB627;
+  --amber-dim:rgba(255,182,39,0.12);
+  --green:#00D68F;
+  --green-dim:rgba(0,214,143,0.12);
+  --blue:#4D9EFF;
+  --blue-dim:rgba(77,158,255,0.12);
+  --purple:#B57BFF;
+  --text:#C8D8EC;
+  --text2:#6A8CAA;
+  --text3:#2E4560;
+  --font-head:'Syne',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --font-body:'Outfit',sans-serif;
+}
+
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-body);overflow:hidden}
+
+/* Scanline overlay */
+body::before{
+  content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,229,200,0.008) 2px,rgba(0,229,200,0.008) 4px);
+  pointer-events:none;z-index:9999
+}
+
+/* Grid background */
+body::after{
+  content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+  background-image:linear-gradient(rgba(0,229,200,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,200,0.03) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0
+}
+
+.layout{display:grid;grid-template-columns:64px 1fr;grid-template-rows:64px 1fr;height:100vh;position:relative;z-index:1}
+
+/* TOPBAR */
+.topbar{
+  grid-column:1/-1;
+  background:rgba(8,14,26,0.95);
+  border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;padding:0 24px 0 0;
+  backdrop-filter:blur(20px);
+  position:relative;overflow:hidden;
+}
+.topbar::after{
+  content:'';position:absolute;bottom:0;left:0;width:100%;height:1px;
+  background:linear-gradient(90deg,var(--cyan),transparent 60%)
+}
+
+/* LOGO */
+.logo-zone{
+  width:64px;height:64px;
+  display:flex;align-items:center;justify-content:center;
+  border-right:1px solid var(--border2);
+  flex-shrink:0;position:relative;
+}
+.logo-svg{position:relative;z-index:1}
+.logo-glow{
+  position:absolute;width:40px;height:40px;
+  background:radial-gradient(circle,rgba(0,229,200,0.3) 0%,transparent 70%);
+  animation:logopulse 3s ease-in-out infinite
+}
+@keyframes logopulse{0%,100%{opacity:.5;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+
+.brand{display:flex;align-items:baseline;gap:8px;padding:0 20px 0 16px;border-right:1px solid var(--border)}
+.brand-name{font-family:var(--font-head);font-size:18px;font-weight:800;color:#fff;letter-spacing:-0.02em}
+.brand-name span{color:var(--cyan)}
+.brand-tag{font-family:var(--font-mono);font-size:9px;color:var(--text3);letter-spacing:.12em;text-transform:uppercase}
+
+.topbar-center{flex:1;display:flex;align-items:center;gap:16px;padding:0 20px}
+
+.tb-stat{display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--panel);border:1px solid var(--border);border-radius:6px}
+.tb-stat-val{font-family:var(--font-mono);font-size:13px;font-weight:500;color:var(--text)}
+.tb-stat-lbl{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+.tb-stat-dot{width:6px;height:6px;border-radius:50%}
+.dot-g{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot-r{background:var(--red);box-shadow:0 0 6px var(--red);animation:blink 1s infinite}
+.dot-a{background:var(--amber)}
+.dot-c{background:var(--cyan);box-shadow:0 0 6px var(--cyan)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.topbar-right{display:flex;align-items:center;gap:10px}
+.clock-widget{font-family:var(--font-mono);font-size:11px;color:var(--text2);padding:6px 14px;border:1px solid var(--border);border-radius:6px;letter-spacing:.08em}
+.avatar{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--cyan),var(--blue));display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:11px;font-weight:700;color:#000}
+
+/* SIDEBAR */
+.sidebar{
+  background:rgba(8,14,26,0.95);
+  border-right:1px solid var(--border2);
+  display:flex;flex-direction:column;align-items:center;
+  padding:12px 0;gap:4px;
+  backdrop-filter:blur(20px);
+  position:relative;overflow:hidden;
+}
+.sidebar::after{
+  content:'';position:absolute;top:0;right:0;width:1px;height:100%;
+  background:linear-gradient(180deg,transparent,var(--cyan),transparent)
+}
+
+.nav-btn{
+  width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .2s;border:1px solid transparent;position:relative;
+  color:var(--text3)
+}
+.nav-btn:hover{background:var(--cyan-dim);border-color:var(--border2);color:var(--text)}
+.nav-btn.active{background:var(--cyan-dim);border-color:rgba(0,229,200,0.3);color:var(--cyan);box-shadow:0 0 20px rgba(0,229,200,0.15)}
+.nav-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.nav-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red)}
+
+.nav-sep{width:32px;height:1px;background:var(--border);margin:4px 0}
+
+/* MAIN */
+.main{overflow-y:auto;padding:24px;scroll-behavior:smooth}
+.main::-webkit-scrollbar{width:4px}.main::-webkit-scrollbar-track{background:transparent}.main::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* Section header */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-title{font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;gap:8px}
+.section-title::before{content:'';width:3px;height:14px;background:var(--cyan);border-radius:2px;box-shadow:0 0 8px var(--cyan)}
+
+/* Metric strip */
+.metric-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.metric-card{
+  background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:18px;position:relative;overflow:hidden;cursor:default;
+  transition:border-color .2s,box-shadow .2s;
+}
+.metric-card:hover{border-color:var(--border2);box-shadow:0 0 30px rgba(0,229,200,0.05)}
+.metric-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;opacity:0;transition:opacity .2s}
+.metric-card:hover::before{opacity:1}
+.metric-card.c-cyan::before{background:linear-gradient(90deg,transparent,var(--cyan),transparent)}
+.metric-card.c-red::before{background:linear-gradient(90deg,transparent,var(--red),transparent)}
+.metric-card.c-green::before{background:linear-gradient(90deg,transparent,var(--green),transparent)}
+.metric-card.c-blue::before{background:linear-gradient(90deg,transparent,var(--blue),transparent)}
+.metric-lbl{font-family:var(--font-mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px}
+.metric-val{font-family:var(--font-head);font-size:32px;font-weight:800;margin-bottom:4px}
+.metric-card.c-cyan .metric-val{color:var(--cyan)}
+.metric-card.c-red .metric-val{color:var(--red)}
+.metric-card.c-green .metric-val{color:var(--green)}
+.metric-card.c-blue .metric-val{color:var(--blue)}
+.metric-sub{font-size:11px;color:var(--text3)}
+.metric-glow{position:absolute;bottom:-20px;right:-20px;width:80px;height:80px;border-radius:50%;filter:blur(30px);opacity:.15}
+.metric-card.c-cyan .metric-glow{background:var(--cyan)}
+.metric-card.c-red .metric-glow{background:var(--red)}
+.metric-card.c-green .metric-glow{background:var(--green)}
+.metric-card.c-blue .metric-glow{background:var(--blue)}
+
+/* Grid layouts */
+.grid-main{display:grid;grid-template-columns:1fr 320px;gap:14px;margin-bottom:14px}
+
+/* Panel */
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.panel-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--panel2)}
+.panel-title{font-family:var(--font-mono);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.1em}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{padding:8px 16px;text-align:left;font-family:var(--font-mono);font-size:9px;color:var(--text3);background:var(--bg3);text-transform:uppercase;letter-spacing:.1em;font-weight:400}
+.tbl td{padding:11px 16px;border-top:1px solid var(--border);color:var(--text);vertical-align:middle}
+.tbl tr{transition:background .15s}
+.tbl tr:hover td{background:rgba(0,229,200,0.03)}
+.stack-name{font-family:var(--font-mono);font-size:11px;font-weight:500;color:#fff}
+.stack-meta{font-size:10px;color:var(--text3);margin-top:2px;font-family:var(--font-mono)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:9px;font-weight:500;padding:3px 8px;border-radius:4px;letter-spacing:.04em}
+.b-cyan{background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(0,229,200,0.2)}
+.b-green{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,214,143,0.2)}
+.b-red{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,77,106,0.2)}
+.b-amber{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(255,182,39,0.2)}
+.b-gray{background:rgba(106,140,170,0.1);color:var(--text2);border:1px solid var(--border)}
+.b-blue{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(77,158,255,0.2)}
+.dot2{width:5px;height:5px;border-radius:50%}
+
+/* Button */
+.btn{padding:5px 14px;border-radius:6px;border:1px solid var(--border2);background:transparent;cursor:pointer;font-family:var(--font-mono);font-size:10px;color:var(--text2);transition:all .15s;letter-spacing:.04em}
+.btn:hover{background:var(--cyan-dim);color:var(--cyan);border-color:rgba(0,229,200,0.3)}
+.btn-cyan{border-color:rgba(0,229,200,0.3);color:var(--cyan);background:var(--cyan-dim)}
+.btn-cyan:hover{background:rgba(0,229,200,0.2);box-shadow:0 0 20px rgba(0,229,200,0.15)}
+.btn-red{border-color:rgba(255,77,106,0.3);color:var(--red);background:var(--red-dim)}
+.btn-red:hover{background:rgba(255,77,106,0.2)}
+.btn-ghost{border:none;background:none;color:var(--text3)}.btn-ghost:hover{color:var(--text);background:var(--panel2)}
+
+/* Approval card */
+.approval-item{padding:14px 16px;border-bottom:1px solid var(--border)}
+.approval-item:last-child{border-bottom:none}
+.appr-stack{font-family:var(--font-mono);font-size:11px;font-weight:500;color:#fff;margin-bottom:4px}
+.appr-meta{font-size:10px;color:var(--text3);margin-bottom:8px}
+.diff-box{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:var(--font-mono);font-size:10px;margin-bottom:10px;line-height:1.7}
+.diff-add{color:var(--green)}.diff-mod{color:var(--amber)}.diff-rem{color:var(--red)}
+
+/* Safety toggle */
+.toggle{width:36px;height:20px;background:var(--bg3);border:1px solid var(--border2);border-radius:99px;position:relative;cursor:pointer;transition:all .2s;flex-shrink:0}
+.toggle.on-c{background:rgba(0,229,200,0.2);border-color:rgba(0,229,200,0.4);box-shadow:0 0 12px rgba(0,229,200,0.2)}
+.toggle.on-r{background:rgba(255,77,106,0.2);border-color:rgba(255,77,106,0.4);box-shadow:0 0 12px rgba(255,77,106,0.2)}
+.toggle.on-a{background:rgba(255,182,39,0.2);border-color:rgba(255,182,39,0.4)}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;background:var(--text3);border-radius:50%;transition:all .2s}
+.toggle.on-c::after,.toggle.on-r::after,.toggle.on-a::after{left:18px;background:#fff}
+
+/* Log */
+.log-box{padding:12px 14px;font-family:var(--font-mono);font-size:10px;max-height:220px;overflow-y:auto;background:var(--bg);border-top:1px solid var(--border);line-height:1.7}
+.log-box::-webkit-scrollbar{width:3px}.log-box::-webkit-scrollbar-thumb{background:var(--border2)}
+.log-info{color:var(--blue)}.log-ok{color:var(--green)}.log-warn{color:var(--amber)}.log-err{color:var(--red)}.log-dim{color:var(--text3)}.log-cyan{color:var(--cyan)}
+.log-phase{color:var(--purple);font-weight:600;margin-top:8px;padding-top:6px;border-top:1px dashed rgba(181,123,255,0.2)}
+
+/* Drift resource diff line */
+.diffline{font-family:var(--font-mono);font-size:9px;line-height:1.6}
+
+/* Drift detail modal */
+.badge-clickable{cursor:pointer;transition:filter .15s}.badge-clickable:hover{filter:brightness(1.3)}
+.modal-overlay{position:fixed;inset:0;background:rgba(4,7,15,0.7);backdrop-filter:blur(3px);z-index:1000;display:flex;align-items:center;justify-content:center;padding:24px}
+.modal-box{background:var(--panel);border:1px solid var(--border2);border-radius:12px;max-width:720px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 0 60px rgba(0,229,200,0.1)}
+.modal-close{cursor:pointer;color:var(--text3);font-family:var(--font-mono);font-size:16px;line-height:1;padding:4px 8px;border-radius:4px}.modal-close:hover{color:var(--text);background:var(--panel2)}
+
+/* Toast notifications — visible confirmation that an action actually did
+   something, instead of only a small status-bar text change that's easy
+   to miss (e.g. Refresh appearing to "do nothing"). */
+.toast-stack{position:fixed;bottom:34px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:1100}
+.toast{
+  font-family:var(--font-mono);font-size:11px;padding:10px 14px;border-radius:8px;
+  background:var(--panel);border:1px solid var(--border2);color:var(--text);
+  box-shadow:0 8px 24px rgba(0,0,0,0.35);animation:toastIn .2s ease forwards;max-width:320px;
+}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.toast.ok{border-color:rgba(0,214,143,0.35);color:var(--green)}
+.toast.err{border-color:rgba(255,77,106,0.35);color:var(--red)}
+
+/* Node execution timeline */
+.node-step{border-bottom:1px solid var(--border);transition:background .15s}
+.node-step:last-child{border-bottom:none}
+.node-step-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer}
+.node-step-hdr:hover{background:rgba(0,229,200,0.03)}
+.node-step-icon{width:16px;text-align:center;font-size:12px;flex-shrink:0}
+.node-step-label{font-family:var(--font-mono);font-size:11px;color:#fff;font-weight:500;flex-shrink:0;min-width:170px}
+.node-step-headline{font-family:var(--font-mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.node-step-chevron{color:var(--text3);font-size:9px;flex-shrink:0}
+.node-step-body{padding:8px 16px 12px 42px;background:var(--bg);font-family:var(--font-mono);font-size:9px;color:var(--text2);max-height:180px;overflow-y:auto;line-height:1.7}
+.node-running .node-step-hdr{background:rgba(0,229,200,0.05)}
+.node-running .node-step-label{color:var(--cyan)}
+.node-done .node-step-icon{color:var(--green)}
+.node-error .node-step-icon,.node-error .node-step-label{color:var(--red)}
+.node-skipped .node-step-label,.node-skipped .node-step-headline{color:var(--text3)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.node-running .node-step-icon{animation:spin 1.2s linear infinite;display:inline-block}
+
+/* Progress */
+.prog-wrap{height:2px;background:var(--bg3);border-radius:1px}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--blue));border-radius:1px;transition:width .4s ease;box-shadow:0 0 8px var(--cyan)}
+
+/* Form */
+.form-label{font-family:var(--font-mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;display:block}
+.form-select,.form-input{width:100%;padding:8px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--font-mono);font-size:11px;outline:none;transition:border-color .2s}
+.form-select:focus,.form-input:focus{border-color:rgba(0,229,200,0.4);box-shadow:0 0 12px rgba(0,229,200,0.08)}
+
+/* Safety */
+.safety-item{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.safety-item:last-child{border-bottom:none}
+.safety-label{font-family:var(--font-mono);font-size:11px;color:#fff;font-weight:500}
+.safety-desc{font-size:10px;color:var(--text3);margin-top:2px}
+.safety-ssm{font-size:9px;color:var(--text3);font-family:var(--font-mono);margin-top:3px;opacity:.6}
+
+/* Check item */
+.check-item{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border)}
+.check-item:last-child{border-bottom:none}
+.check-circle{width:18px;height:18px;border-radius:50%;background:var(--green-dim);border:1px solid rgba(0,214,143,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* Cost table */
+.cost-row{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border)}
+.cost-row:last-child{border-bottom:none}
+
+/* Animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .3s ease forwards}
+
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+
+/* Sparkline */
+.spark{display:flex;align-items:flex-end;gap:2px;height:24px;margin-top:8px}
+.spark-b{width:5px;border-radius:1px 1px 0 0;opacity:.3;transition:opacity .2s}
+.spark-b.hi{opacity:1}
+.metric-card.c-cyan .spark-b{background:var(--cyan)}
+.metric-card.c-red .spark-b{background:var(--red)}
+.metric-card.c-green .spark-b{background:var(--green)}
+.metric-card.c-blue .spark-b{background:var(--blue)}
+
+/* Status bar */
+.statusbar{position:fixed;bottom:0;left:64px;right:0;height:24px;background:rgba(4,7,15,0.95);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:20px;z-index:100;backdrop-filter:blur(10px)}
+.sb-item{font-family:var(--font-mono);font-size:9px;color:var(--text3);display:flex;align-items:center;gap:5px}
+.sb-item.ok{color:var(--green)}.sb-item.err{color:var(--red)}.sb-item.warn{color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <!-- LOGO -->
+  <div class="logo-zone">
+    <div class="logo-glow"></div>
+    <svg class="logo-svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <!-- Hexagon outline -->
+      <path d="M18 2L32 10V26L18 34L4 26V10L18 2Z" stroke="url(#lg1)" stroke-width="1.2" fill="none"/>
+      <!-- Inner hex -->
+      <path d="M18 8L28 14V22L18 28L8 22V14L18 8Z" stroke="rgba(0,229,200,0.3)" stroke-width="0.8" fill="rgba(0,229,200,0.04)"/>
+      <!-- CF letters -->
+      <text x="18" y="22" text-anchor="middle" font-family="Syne" font-size="10" font-weight="800" fill="url(#lg2)">CF</text>
+      <!-- Scanning line -->
+      <line x1="4" y1="18" x2="32" y2="18" stroke="url(#lg3)" stroke-width="0.5" opacity="0.5"/>
+      <!-- Corner accents -->
+      <circle cx="18" cy="2" r="1.5" fill="var(--cyan)"/>
+      <circle cx="32" cy="10" r="1" fill="rgba(0,229,200,0.5)"/>
+      <circle cx="32" cy="26" r="1" fill="rgba(0,229,200,0.5)"/>
+      <circle cx="18" cy="34" r="1.5" fill="var(--cyan)"/>
+      <circle cx="4" cy="26" r="1" fill="rgba(0,229,200,0.5)"/>
+      <circle cx="4" cy="10" r="1" fill="rgba(0,229,200,0.5)"/>
+      <defs>
+        <linearGradient id="lg1" x1="4" y1="2" x2="32" y2="34"><stop offset="0%" stop-color="#00E5C8"/><stop offset="100%" stop-color="#4D9EFF"/></linearGradient>
+        <linearGradient id="lg2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00E5C8"/><stop offset="100%" stop-color="#4D9EFF"/></linearGradient>
+        <linearGradient id="lg3" x1="4" y1="0" x2="32" y2="0"><stop offset="0%" stop-color="transparent"/><stop offset="50%" stop-color="#00E5C8"/><stop offset="100%" stop-color="transparent"/></linearGradient>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="brand">
+    <div>
+      <div class="brand-name">CF<span>DF</span></div>
+      <div class="brand-tag">Drift Fixer</div>
+    </div>
+  </div>
+
+  <div class="topbar-center">
+    <div class="tb-stat"><div class="tb-stat-dot dot-c"></div><div><div class="tb-stat-val" id="ts-stacks">—</div><div class="tb-stat-lbl">stacks</div></div></div>
+    <div class="tb-stat"><div class="tb-stat-dot dot-r" id="ts-dot-d"></div><div><div class="tb-stat-val" id="ts-drift">—</div><div class="tb-stat-lbl">drifted</div></div></div>
+    <div class="tb-stat"><div class="tb-stat-dot dot-g"></div><div><div class="tb-stat-val" id="ts-fixed">—</div><div class="tb-stat-lbl">fixed</div></div></div>
+    <div class="tb-stat"><div class="tb-stat-dot dot-c"></div><div><div class="tb-stat-val" id="ts-mttr">42s</div><div class="tb-stat-lbl">avg MTTR</div></div></div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="clock-widget" id="clock">--:--:--</div>
+    <div class="avatar" style="cursor:pointer" onclick="nav('profile',$('nav-profile'))" title="Profile">LR</div>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="nav-btn active" id="nav-dashboard" onclick="nav('dashboard',this)" title="Dashboard">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+  </div>
+  <div class="nav-btn" id="nav-stacks" onclick="nav('stacks',this)" title="Stacks">
+    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    <div class="nav-dot" id="dot-stacks" style="display:none"></div>
+  </div>
+  <div class="nav-btn" id="nav-approvals" onclick="nav('approvals',this)" title="Approvals">
+    <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <div class="nav-dot" id="dot-approvals" style="display:none"></div>
+  </div>
+  <div class="nav-sep"></div>
+  <div class="nav-btn" id="nav-run" onclick="nav('run',this)" title="Run Agent">
+    <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+  </div>
+  <div class="nav-btn" id="nav-audit" onclick="nav('audit',this)" title="Audit Trail">
+    <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+  </div>
+  <div class="nav-sep"></div>
+  <div class="nav-btn" id="nav-safety" onclick="nav('safety',this)" title="Safety">
+    <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+  </div>
+  <div class="nav-btn" id="nav-cost" onclick="nav('cost',this)" title="Cost">
+    <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+  </div>
+  <div class="nav-sep"></div>
+  <div class="nav-btn" id="nav-profile" onclick="nav('profile',this)" title="Profile">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main" id="main" style="padding-bottom:36px"></div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <div class="sb-item ok" id="sb-api">● API connected</div>
+  <div class="sb-item">region: ap-south-1</div>
+  <div class="sb-item">account: 632127306362</div>
+  <div class="sb-item" id="sb-refresh">last refresh: —</div>
+  <div style="flex:1"></div>
+  <div class="sb-item">CFDF v1.0  ·  LangGraph 8-node  ·  Groq LLaMA 3.3</div>
+</div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const S = {
+  stacks:[], audits:[], metrics:{}, safety:{kill_switch:'false',change_freeze:'false'},
+  approvals:[], pendingApprovals:[], runLogs:[], running:false, page:'dashboard', dryRun:true, apiOk:false
+};
+
+const API = '';
+
+// Maps node-log tags (e.g. "[detect_drift]") to readable phase headers,
+// in graph execution order — used to group the log stream and drive an
+// accurate progress bar instead of a raw event counter.
+const PHASE_ORDER = ['detect_drift','safety_gate','analyze_drift','classify_risk','plan_remediation','human_gate','apply_fix','validate','audit_and_notify'];
+const PHASE_LABELS = {
+  detect_drift:      'Phase 1 · Detecting drift',
+  safety_gate:        'Phase 2 · Safety checks',
+  analyze_drift:      'Phase 3 · Root cause analysis (LLM)',
+  classify_risk:      'Phase 4 · Risk classification',
+  plan_remediation:   'Phase 5 · Planning remediation',
+  human_gate:          'Phase 6 · Approval gate',
+  apply_fix:           'Phase 7 · Applying fix',
+  validate:            'Phase 8 · Validating',
+  audit_and_notify:   'Phase 9 · Audit & notify',
+};
+const NODE_META = {
+  detect_drift:      {label:'1 · Detect Drift',       icon:'◐'},
+  safety_gate:        {label:'2 · Safety Gate',         icon:'◐'},
+  analyze_drift:      {label:'3 · Analyze Drift (LLM)', icon:'◐'},
+  classify_risk:      {label:'4 · Classify Risk',       icon:'◐'},
+  plan_remediation:   {label:'5 · Plan Remediation',    icon:'◐'},
+  human_gate:          {label:'6 · Approval Gate',       icon:'◐'},
+  apply_fix:           {label:'7 · Apply Fix',           icon:'◐'},
+  validate:            {label:'8 · Validate',            icon:'◐'},
+  audit_and_notify:   {label:'9 · Audit & Notify',      icon:'◐'},
+};
+
+// ─── Clock ───────────────────────────────────────────────────────────────────
+setInterval(()=>{
+  const t=new Date();
+  document.getElementById('clock').textContent=t.toLocaleTimeString('en-GB',{hour12:false});
+},1000);
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const db = (d,name) => d==='DRIFTED'?`<span class="badge b-red badge-clickable" onclick="showDriftModal('${name}')" title="Click for details"><span class="dot2" style="background:var(--red);box-shadow:0 0 4px var(--red)"></span>DRIFTED</span>`:d==='IN_SYNC'?`<span class="badge b-green"><span class="dot2" style="background:var(--green)"></span>IN_SYNC</span>`:`<span class="badge b-gray">NOT_CHECKED</span>`;
+const rb = r => !r?'—':r==='HIGH'?`<span class="badge b-red">HIGH</span>`:r==='MEDIUM'?`<span class="badge b-amber">MED</span>`:`<span class="badge b-green">LOW</span>`;
+const sb = s =>{const m={VALIDATED:'b-green',NO_DRIFT:'b-gray',FAILED:'b-red',SKIPPED:'b-amber',APPLIED:'b-cyan'};return`<span class="badge ${m[s]||'b-gray'}">${s||'—'}</span>`};
+const ts = t => t?t.slice(11,19):'—';
+const spark = vals => `<div class="spark">${vals.map((v,i)=>`<div class="spark-b${i===vals.length-1?' hi':''}" style="height:${v}%"></div>`).join('')}</div>`;
+const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// Real change_set_diff is a plain multi-line string (➕/✏️/🗑️ + "└" detail lines) —
+// color-code it the same way the demo +/-/~ diffs are colored.
+function diffLines(text) {
+  if(!text) return '<span style="color:var(--text3)">Not available</span>';
+  return text.split('\n').map(line=>{
+    const t = esc(line);
+    if(line.startsWith('➕')) return `<div class="diff-add">${t}</div>`;
+    if(line.startsWith('✏️')) return `<div class="diff-mod">${t}</div>`;
+    if(line.startsWith('🗑️')) return `<div class="diff-rem">${t}</div>`;
+    if(line.trim().startsWith('└')) return `<div style="color:var(--text3);padding-left:12px">${t}</div>`;
+    return `<div>${t}</div>`;
+  }).join('');
+}
+// Real pending approvals (backed by an actual change set) take priority;
+// demo data only shows when the API is offline.
+const approvalsList = () => S.apiOk ? S.pendingApprovals : S.approvals;
+
+// ─── API ─────────────────────────────────────────────────────────────────────
+async function apiFetch(url, opts={}) {
+  const r = await fetch(API+url, opts);
+  if(r.status===401){ window.location.href='/login'; throw new Error('Session expired'); }
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+async function logout() {
+  try { await fetch('/api/logout',{method:'POST'}); } catch(e){}
+  window.location.href='/login';
+}
+
+function showToast(msg, type='ok', ms=3500) {
+  let stack = $('toastStack');
+  if(!stack){ stack=document.createElement('div'); stack.id='toastStack'; stack.className='toast-stack'; document.body.appendChild(stack); }
+  const t = document.createElement('div');
+  t.className = 'toast '+type;
+  t.textContent = msg;
+  stack.appendChild(t);
+  setTimeout(()=>t.remove(), ms);
+}
+
+async function loadAll(btn) {
+  // The Run page owns its own live DOM (log box, progress, review card,
+  // result panel) via direct manipulation, not the S-driven render()
+  // pipeline. Re-running render() while on that page — which happens every
+  // 30s from the background poll, and again the instant a run finishes —
+  // used to regenerate pgRun() from scratch and wipe all of that back to
+  // empty, which looked like the page had reset/redirected mid-run.
+  const skipRender = S.page==='run';
+  // Acknowledge the click immediately and give a definite success/failure
+  // signal at the end — previously a failed refresh only changed a small
+  // status-bar label, easy to miss, which looked like the button did nothing.
+  if(btn){ btn.disabled=true; const orig=btn.textContent; btn.dataset.orig=orig; btn.textContent='↻ Refreshing…'; }
+  try {
+    const [st,au,me,sf] = await Promise.all([
+      apiFetch('/api/stacks'), apiFetch('/api/audit'),
+      apiFetch('/api/metrics'), apiFetch('/api/safety'),
+    ]);
+    S.stacks=st.stacks||[]; S.audits=au.records||[];
+    S.metrics=me; S.safety=sf; S.apiOk=true;
+    $('sb-api').textContent='● API connected'; $('sb-api').className='sb-item ok';
+    $('sb-refresh').textContent='last refresh: '+new Date().toLocaleTimeString();
+    updateTopbar(); updateBadges(); if(!skipRender) render();
+    if(btn) showToast('Refreshed — '+S.stacks.length+' stack(s)','ok',2000);
+  } catch(e) {
+    S.apiOk=false;
+    $('sb-api').textContent='● API offline — demo mode'; $('sb-api').className='sb-item err';
+    if(!S.stacks.length) loadDemo();
+    updateTopbar(); updateBadges(); if(!skipRender) render();
+    if(btn) showToast('Refresh failed: '+e.message,'err');
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent=btn.dataset.orig||'↻ Refresh'; }
+  }
+}
+
+async function loadWhoami() {
+  try { S.whoami = await apiFetch('/api/whoami'); }
+  catch(e) { S.whoami = {identity:{error:e.message}}; }
+  if(S.page==='profile') render();
+}
+
+function loadDemo() {
+  S.stacks=[
+    {name:'prod-app-stack',  status:'UPDATE_COMPLETE',drift_status:'DRIFTED',    last_updated:new Date().toISOString()},
+    {name:'prod-infra-stack',status:'UPDATE_COMPLETE',drift_status:'IN_SYNC',    last_updated:new Date().toISOString()},
+    {name:'prod-data-stack', status:'UPDATE_COMPLETE',drift_status:'IN_SYNC',    last_updated:new Date().toISOString()},
+    {name:'multi',           status:'UPDATE_COMPLETE',drift_status:'DRIFTED',    last_updated:new Date().toISOString()},
+    {name:'dev-stack',       status:'UPDATE_COMPLETE',drift_status:'NOT_CHECKED',last_updated:new Date().toISOString()},
+  ];
+  S.audits=[
+    {stack_name:'multi',         fix_status:'FAILED',   risk_level:'HIGH',  total_drifted:2,approver:'—',      record_id:'0bb38754',detection_timestamp:'2026-04-16T12:53:07Z'},
+    {stack_name:'prod-app-stack',fix_status:'VALIDATED',risk_level:'LOW',   total_drifted:1,approver:'loknath',record_id:'8ef600f0',detection_timestamp:'2026-04-16T09:11:56Z'},
+    {stack_name:'prod-infra',    fix_status:'NO_DRIFT', risk_level:null,    total_drifted:0,approver:'—',      record_id:'517fc25d',detection_timestamp:'2026-04-16T08:07:08Z'},
+    {stack_name:'prod-app-stack',fix_status:'VALIDATED',risk_level:'LOW',   total_drifted:1,approver:'auto',   record_id:'cb76a51c',detection_timestamp:'2026-04-16T04:53:29Z'},
+    {stack_name:'prod-data',     fix_status:'NO_DRIFT', risk_level:null,    total_drifted:0,approver:'—',      record_id:'a75ceb63',detection_timestamp:'2026-04-16T04:47:14Z'},
+  ];
+  S.metrics={total_runs:5,validated:2,failed:1,no_drift:2,fix_rate_pct:40};
+  S.approvals=[
+    {stack:'multi',         risk:'HIGH',  resource:'AWS::EC2::SecurityGroup',time:'15m ago',diff:['+ Port 22 from 0.0.0.0/0  ← CRITICAL']},
+    {stack:'prod-app-stack',risk:'MEDIUM',resource:'AWS::Lambda::Function',  time:'2m ago', diff:['~ MemorySize: 512 → 3008']},
+  ];
+}
+
+function updateTopbar() {
+  const d=S.stacks.filter(x=>x.drift_status==='DRIFTED').length;
+  $('ts-stacks').textContent=S.stacks.length;
+  $('ts-drift').textContent=d;
+  $('ts-fixed').textContent=S.metrics.validated||0;
+  $('ts-dot-d').className='tb-stat-dot '+(d>0?'dot-r':'dot-g');
+}
+
+function updateBadges() {
+  const d=S.stacks.filter(x=>x.drift_status==='DRIFTED').length;
+  $('dot-stacks').style.display=d>0?'block':'none';
+  $('dot-approvals').style.display=approvalsList().length>0?'block':'none';
+}
+
+// ─── Navigation / routing ──────────────────────────────────────────────────
+// Real URL routing (deep-linkable, browser back/forward, refresh-safe) via
+// the hash — no server-side route handling needed since this is a static
+// single-file dashboard served by FastAPI.
+const ROUTES = ['dashboard','stacks','approvals','run','audit','safety','cost','profile'];
+
+function goToPage(page, pushHash=true) {
+  if(!ROUTES.includes(page)) page='dashboard';
+  document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
+  const btn = $('nav-'+page); if(btn) btn.classList.add('active');
+  S.page=page;
+  if(pushHash && location.hash.slice(1)!==page) location.hash=page;
+  render();
+  if(page==='run') restoreRunView();
+  if(page==='profile' && !S.whoami) loadWhoami();
+}
+
+function nav(page, el) { goToPage(page, true); }
+
+window.addEventListener('hashchange', ()=>{
+  goToPage(location.hash.slice(1) || 'dashboard', false);
+});
+
+// Re-populate the Run page's live content after navigating away and back —
+// pgRun() renders empty placeholder divs, so without this, switching tabs
+// mid-run (or after completion) would look like the run's progress vanished.
+function restoreRunView() {
+  if(!S.runLogs || !S.runLogs.length) return;
+  $('runCard').style.display='block';
+  const box=$('logBox');
+  if(box){
+    box.innerHTML='';
+    S.runLogs.forEach(l=>{ const d=document.createElement('div'); d.className='log-line '+l.cls; d.textContent=l.text; box.appendChild(d); });
+    box.scrollTop=box.scrollHeight;
+  }
+  renderNodeTimeline();
+  if(S.currentReviewEntry) renderReviewCard(S.currentReviewEntry);
+  if(S.lastRunResult) $('runResult').innerHTML = buildRunResultHtml(S.lastRunResult);
+  if(S.running){ const b=$('runBtn'); if(b){ b.disabled=true; b.textContent='▶ Running…'; } }
+}
+
+function render() {
+  const pages={dashboard:pgDash,stacks:pgStacks,approvals:pgApprovals,run:pgRun,audit:pgAudit,safety:pgSafety,cost:pgCost,profile:pgProfile};
+  $('main').innerHTML=`<div class="fade-up">${(pages[S.page]||pgDash)()}</div>`;
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function pgDash() {
+  const m=S.metrics; const d=S.stacks.filter(x=>x.drift_status==='DRIFTED').length;
+  const warn=!S.apiOk?`<div style="padding:10px 14px;background:var(--amber-dim);border:1px solid rgba(255,182,39,.2);border-radius:8px;font-family:var(--font-mono);font-size:10px;color:var(--amber);margin-bottom:16px">⚠ API OFFLINE — start uvicorn: <code>python -m uvicorn dashboard.api:app --port 8000</code></div>`:'';
+  return `${warn}
+  <div class="section-hdr"><div class="section-title">Overview</div><button class="btn btn-cyan" onclick="loadAll(this)">↻ Refresh</button></div>
+  <div class="metric-strip">
+    <div class="metric-card c-cyan"><div class="metric-lbl">Stacks monitored</div><div class="metric-val">${S.stacks.length}</div><div class="metric-sub">ap-south-1</div>${spark([30,45,40,60,50,70,55,80,65,100])}<div class="metric-glow"></div></div>
+    <div class="metric-card c-red"><div class="metric-lbl">Drifted now</div><div class="metric-val">${d}</div><div class="metric-sub">${d>0?'Action required':'All clean'}</div>${spark([20,40,30,60,45,80,55,70,60,d>0?100:20])}<div class="metric-glow"></div></div>
+    <div class="metric-card c-green"><div class="metric-lbl">Fixed total</div><div class="metric-val">${m.validated||0}</div><div class="metric-sub">Fix rate ${m.fix_rate_pct||0}%</div>${spark([10,30,25,50,40,65,55,70,75,80])}<div class="metric-glow"></div></div>
+    <div class="metric-card c-blue"><div class="metric-lbl">Total runs</div><div class="metric-val">${m.total_runs||0}</div><div class="metric-sub">DynamoDB audit</div>${spark([5,15,20,35,30,50,45,60,70,80])}<div class="metric-glow"></div></div>
+  </div>
+  <div class="grid-main">
+    <div class="panel" style="margin-bottom:0">
+      <div class="panel-hdr"><span class="panel-title">Stack status</span><button class="btn btn-cyan" onclick="nav('run',$('nav-run'))">+ Run scan</button></div>
+      <table class="tbl"><thead><tr><th>Stack</th><th>Drift</th><th>Risk detected</th><th>Last updated</th><th>Actions</th></tr></thead><tbody>
+        ${S.stacks.map(s=>`<tr>
+          <td><div class="stack-name">${s.name}</div><div class="stack-meta">${s.status}</div></td>
+          <td>${db(s.drift_status,s.name)}</td>
+          <td>${s.drift_status==='DRIFTED'?rb('HIGH'):'—'}</td>
+          <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${s.last_updated?new Date(s.last_updated).toLocaleTimeString():'-'}</td>
+          <td>
+            <button class="btn" onclick="quickScan('${s.name}')">Scan</button>
+            ${s.drift_status==='DRIFTED'?`<button class="btn btn-cyan" style="margin-left:4px" onclick="quickFix('${s.name}')">Fix (review)</button>`:''}
+          </td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="panel" style="margin-bottom:0">
+        <div class="panel-hdr"><span class="panel-title">Approval queue</span><span class="badge b-red">${approvalsList().length} pending</span></div>
+        ${approvalsList().length===0?`<div style="padding:24px;text-align:center;color:var(--text3);font-family:var(--font-mono);font-size:10px">NO PENDING APPROVALS</div>`:
+          approvalsList().map((a,i)=>a.run_id?`<div class="approval-item">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <div class="appr-stack">${a.stack}</div>${rb(a.risk)}
+            </div>
+            <div class="appr-meta">${a.drifted} drifted resource(s)</div>
+            ${driftResourcesBlock(a.resources)}
+            <div class="diff-box">${diffLines(a.diff)}</div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-cyan" style="flex:1" onclick="decideRun('${a.run_id}','APPROVE',this)">✓ Approve</button>
+              <button class="btn btn-red" style="flex:1" onclick="decideRun('${a.run_id}','REJECT',this)">✗ Reject</button>
+            </div>
+          </div>`:`<div class="approval-item">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <div class="appr-stack">${a.stack}</div>${rb(a.risk)}
+            </div>
+            <div class="appr-meta">${a.resource} · ${a.time}</div>
+            <div class="diff-box">${a.diff.map(d=>d.startsWith('+')?`<div class="diff-add">${d}</div>`:d.startsWith('-')?`<div class="diff-rem">${d}</div>`:`<div class="diff-mod">${d}</div>`).join('')}</div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-cyan" style="flex:1" onclick="doApprove(${i})">✓ Approve</button>
+              <button class="btn btn-red" style="flex:1" onclick="doReject(${i})">✗ Reject</button>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="panel" style="margin-bottom:0">
+        <div class="panel-hdr"><span class="panel-title">Safety controls</span></div>
+        <div class="safety-item">
+          <div><div class="safety-label">Kill switch</div><div class="safety-desc">Halt all agent activity</div><div class="safety-ssm">/cfn-drift-fixer/kill-switch</div></div>
+          <div class="toggle ${S.safety.kill_switch==='true'?'on-r':''}" onclick="toggleSafety('kill')"></div>
+        </div>
+        <div class="safety-item">
+          <div><div class="safety-label">Change freeze</div><div class="safety-desc">Detect only — no fixes</div><div class="safety-ssm">/cfn-drift-fixer/change-freeze</div></div>
+          <div class="toggle ${S.safety.change_freeze==='true'?'on-a':''}" onclick="toggleSafety('freeze')"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">Recent audit trail</span><button class="btn btn-ghost" onclick="nav('audit',$('nav-audit'))">view all →</button></div>
+    <table class="tbl"><thead><tr><th>Stack</th><th>Result</th><th>Risk</th><th>Drifted</th><th>Approver</th><th>Audit ID</th><th>Time</th></tr></thead><tbody>
+      ${S.audits.slice(0,5).map(a=>`<tr>
+        <td class="stack-name">${a.stack_name||'—'}</td>
+        <td>${sb(a.fix_status)}</td>
+        <td>${rb(a.risk_level)}</td>
+        <td style="font-family:var(--font-mono);font-size:10px">${a.total_drifted||0}</td>
+        <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${a.approver||'—'}</td>
+        <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">${(a.record_id||'').slice(0,8)}...</td>
+        <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${ts(a.detection_timestamp)}</td>
+      </tr>`).join('')}
+    </tbody></table>
+  </div>`;
+}
+
+// ─── STACKS ───────────────────────────────────────────────────────────────────
+function pgStacks() {
+  return `
+  <div class="section-hdr"><div class="section-title">All Stacks</div><div style="display:flex;gap:6px"><button class="btn" onclick="filterS('all')">All</button><button class="btn" onclick="filterS('drifted')">Drifted</button><button class="btn" onclick="filterS('synced')">In sync</button><button class="btn btn-cyan" onclick="loadAll(this)">↻ Refresh</button></div></div>
+  <div class="panel">
+    <table class="tbl" id="stbl"><thead><tr><th>Stack name</th><th>Status</th><th>Drift</th><th>Last updated</th><th>Actions</th></tr></thead>
+    <tbody>${stackRows(S.stacks)}</tbody></table>
+  </div>`;
+}
+function stackRows(list) {
+  return list.map(s=>`<tr>
+    <td><div class="stack-name">${s.name}</div><div class="stack-meta">${s.status}</div></td>
+    <td><span class="badge b-gray">${s.status}</span></td>
+    <td>${db(s.drift_status,s.name)}</td>
+    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${s.last_updated?new Date(s.last_updated).toLocaleString():'—'}</td>
+    <td><button class="btn" onclick="quickScan('${s.name}')">Scan</button>${s.drift_status==='DRIFTED'?`<button class="btn btn-cyan" style="margin-left:4px" onclick="quickFix('${s.name}')">Fix (review)</button>`:''}</td>
+  </tr>`).join('');
+}
+function filterS(f) {
+  const l=f==='all'?S.stacks:f==='drifted'?S.stacks.filter(s=>s.drift_status==='DRIFTED'):S.stacks.filter(s=>s.drift_status==='IN_SYNC');
+  const b=$('stbl')?.querySelector('tbody'); if(b) b.innerHTML=stackRows(l);
+}
+
+// ─── APPROVALS ────────────────────────────────────────────────────────────────
+function pgApprovals() {
+  const list = approvalsList();
+  if(!list.length) return `<div class="section-hdr"><div class="section-title">Approvals</div></div><div class="panel"><div style="padding:40px;text-align:center;color:var(--text3);font-family:var(--font-mono);font-size:11px">// NO_PENDING_APPROVALS</div></div>`;
+  return `<div class="section-hdr"><div class="section-title">Approval Queue</div><span class="badge b-red">${list.length} pending</span></div>
+  ${list.map((a,i)=>a.run_id?`
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">${a.stack} — real change set</span>${rb(a.risk)}</div>
+    <div style="padding:16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px"><strong style="color:#fff">Root cause:</strong> ${esc(a.root_cause)||'—'}</div>
+      ${driftResourcesBlock(a.resources)}
+      <div class="form-label">Change set diff</div>
+      <div class="diff-box">${diffLines(a.diff)}</div>
+      ${a.snapshot?`<div style="font-size:9px;color:var(--text3);margin:8px 0;font-family:var(--font-mono)">Rollback snapshot: ${esc(a.snapshot)}</div>`:''}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <input class="form-input" id="apprApprover-${i}" placeholder="Your name (for audit trail)" style="flex:1">
+        <button class="btn btn-cyan" style="padding:8px 24px" onclick="decideRunFromApprovals('${a.run_id}','APPROVE','apprApprover-${i}',this)">✓ Approve</button>
+        <button class="btn btn-red" style="padding:8px 24px" onclick="decideRunFromApprovals('${a.run_id}','REJECT','apprApprover-${i}',this)">✗ Reject</button>
+      </div>
+    </div>
+  </div>`:`
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">${a.stack} / ${a.resource}</span>${rb(a.risk)}</div>
+    <div style="padding:16px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+        <div><div class="form-label">Stack</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--cyan)">${a.stack}</div></div>
+        <div><div class="form-label">Resource</div><div style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${a.resource}</div></div>
+        <div><div class="form-label">Requested</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--text2)">${a.time}</div></div>
+      </div>
+      <div class="form-label">Change set diff</div>
+      <div class="diff-box">${a.diff.map(d=>d.startsWith('+')?`<div class="diff-add">${d}</div>`:d.startsWith('-')?`<div class="diff-rem">${d}</div>`:`<div class="diff-mod">${d}</div>`).join('')}</div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-cyan" style="padding:8px 24px" onclick="doApprove(${i})">✓ Approve</button>
+        <button class="btn btn-red" style="padding:8px 24px" onclick="doReject(${i})">✗ Reject</button>
+      </div>
+    </div>
+  </div>`).join('')}`;
+}
+
+async function decideRunFromApprovals(runId, decision, approverInputId, btn) {
+  const approver = $(approverInputId)?.value?.trim() || 'dashboard-user';
+  // Acknowledge the click immediately — don't leave the button looking
+  // inert while the network round-trip is in flight.
+  if(btn){ btn.disabled=true; btn.textContent='Submitting…'; }
+  try {
+    const r = await fetch(API+'/api/runs/'+runId+'/approve', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({run_id: runId, decision, approver}),
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+  } catch(e) {
+    if(btn){ btn.disabled=false; btn.textContent=decision==='APPROVE'?'✓ Approve':'✗ Reject'; }
+    alert('Could not submit decision: '+e.message);
+    return;
+  }
+  S.pendingApprovals = S.pendingApprovals.filter(p=>p.run_id!==runId);
+  S.currentReviewEntry = null;
+  updateBadges();
+  if(S.nodeStatus && S.nodeStatus['human_gate']==='running'){
+    S.nodeStatus['human_gate'] = decision==='APPROVE' ? 'done' : 'skipped';
+    if(decision==='APPROVE'){ S.nodeStatus['apply_fix']='running'; S.lastPhase='apply_fix'; }
+  }
+  render();
+}
+
+// ─── RUN AGENT ────────────────────────────────────────────────────────────────
+function pgRun() {
+  return `
+  <div class="section-hdr"><div class="section-title">Run Agent</div></div>
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr"><span class="panel-title">Configure execution</span></div>
+    <div style="padding:16px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:180px"><label class="form-label">Stack name</label>
+        <select class="form-select" id="rStack">${S.stacks.map(s=>`<option value="${s.name}">${s.name}</option>`).join('')}</select></div>
+      <div style="flex:.6;min-width:140px"><label class="form-label">Region</label>
+        <select class="form-select" id="rRegion"><option>ap-south-1</option><option>us-east-1</option><option>eu-west-1</option></select></div>
+      <div><label class="form-label">Mode</label>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-cyan" id="btnDry" onclick="setMode('dry')">Dry run</button>
+          <button class="btn" id="btnLive" onclick="setMode('live')">Live fix</button>
+        </div>
+      </div>
+      <button class="btn btn-cyan" style="padding:8px 24px;font-size:11px" onclick="doRun()" id="runBtn">▶ Execute</button>
+    </div>
+  </div>
+  <div class="panel" id="runCard" style="display:none">
+    <div class="panel-hdr">
+      <span class="panel-title" id="runTitle">Executing...</span>
+      <span class="badge b-cyan" id="runBadge">Running</span>
+    </div>
+    <div id="nodeTimeline"></div>
+    <div style="padding:10px 14px;border-top:1px solid var(--border)">
+      <div class="prog-wrap"><div class="prog-fill" id="runProg" style="width:0%"></div></div>
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text3);margin-top:5px" id="runStep">Waiting...</div>
+    </div>
+    <div class="panel-hdr" style="border-top:1px solid var(--border)"><span class="panel-title">Raw log stream</span></div>
+    <div class="log-box" id="logBox"></div>
+  </div>
+  <div id="reviewCard"></div>
+  <div id="runResult"></div>`;
+}
+
+// ─── REVIEW CARD (real pause point, backed by a real change set) ─────────────
+function renderReviewCard(entry) {
+  const el = $('reviewCard'); if(!el) return;
+  if(!entry) { el.innerHTML=''; return; }
+  el.innerHTML = `
+  <div class="panel" style="border-color:rgba(255,182,39,0.35)">
+    <div class="panel-hdr"><span class="panel-title">Review required — ${entry.stack}</span>${rb(entry.risk)}</div>
+    <div style="padding:16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px"><strong style="color:#fff">Root cause:</strong> ${esc(entry.root_cause)||'—'}</div>
+      ${driftResourcesBlock(entry.resources)}
+      <div class="form-label">Change set diff — what will actually change</div>
+      <div class="diff-box">${diffLines(entry.diff)}</div>
+      ${entry.snapshot?`<div style="font-size:9px;color:var(--text3);margin:8px 0;font-family:var(--font-mono)">Rollback snapshot: ${esc(entry.snapshot)}</div>`:''}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input class="form-input" id="reviewApprover" placeholder="Your name (for audit trail)" style="flex:1">
+        <button class="btn btn-cyan" onclick="decideRun('${entry.run_id}','APPROVE',this)">✓ Approve &amp; apply</button>
+        <button class="btn btn-red" onclick="decideRun('${entry.run_id}','REJECT',this)">✗ Reject</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function decideRun(runId, decision, btn) {
+  const approver = $('reviewApprover')?.value?.trim() || 'dashboard-user';
+  if(btn){ btn.disabled=true; btn.textContent='Submitting…'; }
+  try {
+    const r = await fetch(API+'/api/runs/'+runId+'/approve', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({run_id: runId, decision, approver}),
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+  } catch(e) {
+    if(btn){ btn.disabled=false; btn.textContent=decision==='APPROVE'?'✓ Approve & apply':'✗ Reject'; }
+    alert('Could not submit decision: '+e.message);
+    return;
+  }
+  S.pendingApprovals = S.pendingApprovals.filter(p=>p.run_id!==runId);
+  S.currentReviewEntry = null;
+  renderReviewCard(null);
+  updateBadges();
+  alog(decision==='APPROVE' ? '✓ Approved by '+approver+' — applying fix...' : '✗ Rejected by '+approver, decision==='APPROVE'?'log-ok':'log-warn');
+  setRunStatus(decision==='APPROVE'?'Applying':'Rejected', decision==='APPROVE'?'b-cyan':'b-red');
+  // Advance the timeline immediately — resume_apply_task starts apply_fix
+  // right away on the backend, so reflect that without waiting on the next
+  // log line to arrive.
+  if(S.nodeStatus){
+    S.nodeStatus['human_gate'] = decision==='APPROVE' ? 'done' : 'skipped';
+    if(decision==='APPROVE'){ S.nodeStatus['apply_fix']='running'; S.lastPhase='apply_fix'; }
+    renderNodeTimeline();
+  }
+  if (S.page==='dashboard'||S.page==='approvals') render();
+}
+
+function setMode(m) {
+  S.dryRun=m==='dry';
+  $('btnDry').className=S.dryRun?'btn btn-cyan':'btn';
+  $('btnLive').className=!S.dryRun?'btn btn-red':'btn';
+}
+
+async function doRun() {
+  const stack=$('rStack')?.value; if(!stack||S.running) return;
+  S.running=true; S.runLogs=[];
+  S.lastLogMsg=null; S.lastLogEl=null; S.lastLogCount=1;
+  S.lastRunResult=null; S.currentReviewEntry=null;
+  resetNodeTimeline();
+  // Disable immediately so a second click while the request is in flight
+  // doesn't silently no-op (previously looked like the button was broken).
+  const btn=$('runBtn'); if(btn){ btn.disabled=true; btn.textContent='▶ Running…'; }
+  $('runCard').style.display='block';
+  $('logBox').innerHTML='';
+  $('runResult').innerHTML='';
+  renderNodeTimeline();
+  setRunStatus('Running','b-cyan');
+  // Feels like moving to the execution view, without losing the approval
+  // step or final result — everything stays on this same page/tab.
+  $('runCard').scrollIntoView({behavior:'smooth', block:'start'});
+  if(!S.apiOk){ demoRun(stack); return; }
+  try {
+    const r=await apiFetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stack_name:stack,dry_run:S.dryRun})});
+    streamLogs(r.run_id, stack);
+  } catch(e){
+    alog('ERROR: '+e.message,'log-err'); setRunStatus('Error','b-red'); S.running=false;
+    if(btn){ btn.disabled=false; btn.textContent='▶ Execute'; }
+  }
+}
+
+function streamLogs(runId, stack) {
+  const es=new EventSource(API+'/api/runs/'+runId+'/stream');
+  es.onmessage=e=>{
+    const d=JSON.parse(e.data);
+
+    if(d.type==='awaiting_approval'){
+      const run = d.run || {};
+      const entry = {
+        run_id: runId, stack: run.stack || stack, risk: run.risk_level || 'LOW',
+        root_cause: run.root_cause || '', diff: run.change_set_diff || '',
+        snapshot: run.template_snapshot_s3 || '', drifted: run.total_drifted || 0,
+        resources: run.drifted_resources || [],
+      };
+      const i = S.pendingApprovals.findIndex(p=>p.run_id===runId);
+      if(i>=0) S.pendingApprovals[i]=entry; else S.pendingApprovals.push(entry);
+      updateBadges();
+      alog('⏸ Paused — awaiting approval','log-warn');
+      setRunStatus('Awaiting approval','b-amber');
+      // The dashboard's pause-for-review flow doesn't invoke the backend's
+      // node_human_gate (it pauses itself right after plan_remediation), so
+      // drive this step's timeline status from the approval lifecycle here.
+      if(S.lastPhase) S.nodeStatus[S.lastPhase]='done';
+      S.nodeStatus['human_gate']='running';
+      (S.nodeLines['human_gate']=S.nodeLines['human_gate']||[]).push('Awaiting stakeholder approval — see review card below');
+      S.lastPhase='human_gate';
+      S.currentReviewEntry = entry;
+      renderNodeTimeline();
+      renderReviewCard(entry);
+      if (S.page==='dashboard'||S.page==='approvals') render();
+      return;
+    }
+
+    if(d.type==='done'){
+      es.close(); S.running=false; reenableRunBtn(); setRunStatus('Complete','b-green'); $('runProg').style.width='100%';
+      S.pendingApprovals = S.pendingApprovals.filter(p=>p.run_id!==runId);
+      S.currentReviewEntry = null;
+      renderReviewCard(null); updateBadges();
+      const run=d.run||{};
+      if(S.lastPhase) S.nodeStatus[S.lastPhase] = run.error ? 'error' : 'done';
+      PHASE_ORDER.forEach(t=>{ if(S.nodeStatus[t]==='pending') S.nodeStatus[t]='skipped'; });
+      renderNodeTimeline();
+      loadAll(); showResult(runId);
+      return;
+    }
+
+    const cls=d.level==='ERROR'?'log-err':d.level==='WARNING'?'log-warn':d.level==='INFO'?'log-cyan':'log-dim';
+    const msg=d.message||'';
+    const tagMatch=msg.match(/^\[(\w+)\]/);
+    const tag=tagMatch?tagMatch[1]:null;
+
+    // New phase → header + accurate progress (instead of a raw event counter,
+    // which jumped erratically since noisy retry/poll lines inflate the count).
+    if(tag && tag!==S.lastPhase && PHASE_ORDER.includes(tag)){
+      if(S.lastPhase && S.nodeStatus[S.lastPhase]==='running') S.nodeStatus[S.lastPhase]='done';
+      S.lastPhase=tag; S.lastLogMsg=null; S.lastLogEl=null;
+      S.nodeStatus[tag]='running';
+      alog(`── ${PHASE_LABELS[tag]} ──`,'log-phase');
+      const idx=PHASE_ORDER.indexOf(tag);
+      $('runProg').style.width=Math.round((idx/PHASE_ORDER.length)*90)+'%';
+      $('runStep').textContent=PHASE_LABELS[tag];
+    }
+
+    // Sub-module log lines (agent.cfn, agent.safety, agent.storage, ...)
+    // don't carry a "[node_name]" prefix — attribute them to whichever node
+    // is currently active so each step's expanded detail is complete.
+    const effTag = tag || S.lastPhase;
+    if(effTag && msg){ (S.nodeLines[effTag]=S.nodeLines[effTag]||[]).push(msg); }
+    renderNodeTimeline();
+
+    // Collapse repeated identical lines (e.g. drift-detection polling every
+    // 10s) into one updating counter instead of flooding the log box.
+    const line=`${(d.time||'').slice(11,19)} | ${(d.level||'').padEnd(7)} | ${msg}`;
+    if(msg && msg===S.lastLogMsg && S.lastLogEl){
+      S.lastLogCount=(S.lastLogCount||1)+1;
+      alogUpdate(S.lastLogEl, `${line}  (×${S.lastLogCount})`);
+    } else {
+      S.lastLogMsg=msg; S.lastLogCount=1;
+      S.lastLogEl=alog(line,cls);
+    }
+  };
+  es.onerror=()=>{ es.close(); S.running=false; reenableRunBtn(); setRunStatus('Error','b-red'); };
+}
+
+function propDiffSummary(diffs) {
+  if(!diffs || !diffs.length) return '<span style="color:var(--text3)">—</span>';
+  const shown = diffs.slice(0,3).map(pd=>{
+    const exp = esc(String(pd.ExpectedValue??'').slice(0,40));
+    const act = esc(String(pd.ActualValue??'').slice(0,40));
+    return `<div class="diffline"><span style="color:var(--text2)">${esc(pd.PropertyPath||'')}</span>: <span style="color:var(--text3)">${exp}</span> → <span style="color:var(--amber)">${act}</span></div>`;
+  }).join('');
+  const more = diffs.length>3?`<div class="diffline" style="color:var(--text3)">+${diffs.length-3} more change(s)</div>`:'';
+  return shown+more;
+}
+
+// Shared block for approval cards — shows exactly which resources drifted
+// and what changed on each, alongside the raw change-set diff, so approving
+// a fix isn't a leap of faith based on a text blob alone.
+function driftResourcesBlock(resources) {
+  if (!resources || !resources.length) return '';
+  return `
+  <div class="form-label" style="margin-top:12px">Drifted resources (${resources.length})</div>
+  <table class="tbl" style="margin-bottom:12px"><thead><tr><th>Logical ID</th><th>Type</th><th>Status</th><th>What changed</th></tr></thead><tbody>
+    ${resources.map(res=>`<tr>
+      <td class="stack-name">${esc(res.logical_id)}</td>
+      <td style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${esc(res.resource_type)}</td>
+      <td><span class="badge ${res.drift_status==='DELETED'?'b-red':'b-amber'}">${esc(res.drift_status)||'—'}</span></td>
+      <td>${propDiffSummary(res.property_differences)}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ─── Node execution timeline — structured per-node status/output, not just
+// a flat log dump. Fed live from the SSE stream in streamLogs(). ────────────
+function iconFor(status) {
+  if(status==='running') return '⟳';
+  if(status==='done')    return '✓';
+  if(status==='error')   return '✗';
+  if(status==='skipped') return '⏭';
+  return '○';
+}
+function renderNodeTimeline() {
+  const el = $('nodeTimeline'); if(!el) return;
+  el.innerHTML = PHASE_ORDER.map(tag=>{
+    const meta   = NODE_META[tag];
+    const status = S.nodeStatus[tag]||'pending';
+    const lines  = S.nodeLines[tag]||[];
+    const headline = status==='pending' ? 'Waiting…' : (lines.length ? esc(lines[lines.length-1]) : '');
+    const expanded = S.nodeExpanded===tag;
+    return `<div class="node-step node-${status}">
+      <div class="node-step-hdr" onclick="toggleNodeStep('${tag}')">
+        <span class="node-step-icon">${iconFor(status)}</span>
+        <span class="node-step-label">${meta.label}</span>
+        <span class="node-step-headline">${headline}</span>
+        <span class="node-step-chevron">${expanded?'▾':'▸'} ${lines.length||''}</span>
+      </div>
+      ${expanded?`<div class="node-step-body">${lines.length?lines.map(l=>`<div>${esc(l)}</div>`).join(''):'<span style="color:var(--text3)">No output yet</span>'}</div>`:''}
+    </div>`;
+  }).join('');
+}
+function toggleNodeStep(tag) {
+  S.nodeExpanded = S.nodeExpanded===tag ? null : tag;
+  renderNodeTimeline();
+}
+function resetNodeTimeline() {
+  S.nodeStatus={}; S.nodeLines={}; S.nodeExpanded=null; S.lastPhase=null;
+  PHASE_ORDER.forEach(t=>{ S.nodeStatus[t]='pending'; S.nodeLines[t]=[]; });
+}
+
+// Untruncated variant for the drift detail modal — "full details what drifted".
+function propDiffFull(diffs) {
+  if(!diffs || !diffs.length) return '<span style="color:var(--text3)">No property-level differences reported</span>';
+  return diffs.map(pd=>{
+    const exp = esc(String(pd.ExpectedValue??''));
+    const act = esc(String(pd.ActualValue??''));
+    return `<div class="diffline" style="margin-bottom:6px">
+      <div style="color:var(--text2);font-weight:600">${esc(pd.PropertyPath||'')} <span style="color:var(--text3);font-weight:400">(${esc(pd.DifferenceType||'')})</span></div>
+      <div style="padding-left:10px"><span style="color:var(--text3)">expected:</span> ${exp||'<span style="color:var(--text3)">—</span>'}</div>
+      <div style="padding-left:10px"><span style="color:var(--amber)">actual:</span> ${act||'<span style="color:var(--text3)">—</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+async function showDriftModal(stackName) {
+  // Show the overlay immediately with a loading state — details load fast
+  // (a single cached CloudFormation call, no LLM), but don't leave the click
+  // feeling unacknowledged while it fetches.
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay'; overlay.id='driftModalOverlay';
+  overlay.onclick=(e)=>{ if(e.target===overlay) closeDriftModal(); };
+  overlay.innerHTML=`<div class="modal-box">
+    <div class="panel-hdr"><span class="panel-title">Drift details — ${esc(stackName)}</span><span class="modal-close" onclick="closeDriftModal()">✕</span></div>
+    <div style="padding:24px;text-align:center;color:var(--text3);font-family:var(--font-mono);font-size:11px">Loading last known drift results…</div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  try {
+    const r = await apiFetch('/api/stacks/'+encodeURIComponent(stackName)+'/drift');
+    const resources = r.drifted_resources || [];
+    const box = overlay.querySelector('.modal-box');
+    box.innerHTML = `
+      <div class="panel-hdr"><span class="panel-title">Drift details — ${esc(stackName)}</span><span class="modal-close" onclick="closeDriftModal()">✕</span></div>
+      ${resources.length===0 ? `<div style="padding:24px;text-align:center;color:var(--green);font-family:var(--font-mono);font-size:11px">No drifted resources found in AWS's last detection for this stack.</div>` :
+        resources.map(res=>`
+        <div class="approval-item">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+            <div class="appr-stack">${esc(res.logical_id)}</div>
+            <span class="badge ${res.drift_status==='DELETED'?'b-red':'b-amber'}">${esc(res.drift_status)||'—'}</span>
+          </div>
+          <div class="appr-meta">${esc(res.resource_type)} · ${esc(res.resource_id||'')}</div>
+          <div class="diff-box">${propDiffFull(res.property_differences)}</div>
+        </div>`).join('')}
+    `;
+  } catch(e) {
+    const box = overlay.querySelector('.modal-box');
+    box.innerHTML = `
+      <div class="panel-hdr"><span class="panel-title">Drift details — ${esc(stackName)}</span><span class="modal-close" onclick="closeDriftModal()">✕</span></div>
+      <div style="padding:24px;text-align:center;color:var(--red);font-family:var(--font-mono);font-size:11px">Could not load drift details: ${esc(e.message)}</div>
+    `;
+  }
+}
+function closeDriftModal() {
+  const el=$('driftModalOverlay'); if(el) el.remove();
+}
+
+function buildRunResultHtml(r) {
+  const col=r.fix_status==='VALIDATED'||r.fix_status==='NO_DRIFT'?'var(--green)':r.fix_status==='FAILED'?'var(--red)':'var(--amber)';
+  const resources = r.drifted_resources || [];
+  return `<div class="panel">
+      <div class="panel-hdr"><span class="panel-title">Run result — what was fixed</span>${sb(r.fix_status)}</div>
+      <div style="padding:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div><div class="form-label">Fix status</div><div style="font-family:var(--font-head);font-size:18px;font-weight:800;color:${col}">${r.fix_status||'—'}</div></div>
+        <div><div class="form-label">Drifted resources</div><div style="font-family:var(--font-head);font-size:18px;font-weight:800;color:var(--cyan)">${r.total_drifted||0}</div></div>
+        <div><div class="form-label">Validation</div><div style="font-family:var(--font-mono);font-size:12px;color:${r.validation?'var(--green)':'var(--text3)'}">${r.validation===true?'✅ PASSED':r.validation===false?'❌ FAILED':'—'}</div></div>
+        <div style="grid-column:1/-1"><div class="form-label">Root cause</div><div style="font-size:12px;color:var(--text2)">${r.root_cause||'—'}</div></div>
+        <div style="grid-column:1/-1"><div class="form-label">Audit record ID</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--text3)">${r.audit_record_id||'—'}</div></div>
+        ${r.error?`<div style="grid-column:1/-1"><div class="form-label">Error</div><div style="font-size:12px;color:var(--red)">${esc(r.error)}</div></div>`:''}
+      </div>
+    </div>
+    ${resources.length ? `
+    <div class="panel">
+      <div class="panel-hdr"><span class="panel-title">What changed — per resource</span><span class="badge b-red">${resources.length} drifted</span></div>
+      <table class="tbl"><thead><tr><th>Logical ID</th><th>Type</th><th>Status</th><th>What changed</th></tr></thead><tbody>
+        ${resources.map(res=>`<tr>
+          <td class="stack-name">${esc(res.logical_id)}</td>
+          <td style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${esc(res.resource_type)}</td>
+          <td><span class="badge ${res.drift_status==='DELETED'?'b-red':'b-amber'}">${esc(res.drift_status)||'—'}</span></td>
+          <td>${propDiffSummary(res.property_differences)}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>` : (r.fix_status==='NO_DRIFT' ? `<div class="panel"><div style="padding:24px;text-align:center;color:var(--green);font-family:var(--font-mono);font-size:11px">✅ NO DRIFT DETECTED — stack matches template</div></div>` : '')}`;
+}
+
+async function showResult(runId) {
+  try {
+    const r=await apiFetch('/api/runs/'+runId);
+    S.lastRunResult = r;
+    $('runResult').innerHTML = buildRunResultHtml(r);
+  } catch(e){}
+}
+
+function alog(text,cls='log-dim') {
+  const box=$('logBox'); if(!box) return null;
+  const d=document.createElement('div');
+  d.className='log-line '+cls; d.textContent=text;
+  box.appendChild(d); box.scrollTop=box.scrollHeight;
+  S.runLogs.push({text,cls});
+  return d;
+}
+function alogUpdate(el,text) {
+  if(!el) return;
+  el.textContent=text;
+  const box=$('logBox'); if(box) box.scrollTop=box.scrollHeight;
+}
+function setRunStatus(text,cls) {
+  const b=$('runBadge'); if(b){b.textContent=text;b.className='badge '+cls;}
+  const t=$('runTitle'); if(t) t.textContent=($('rStack')?.value||'')+(text==='Running'?' — Executing...':`— ${text}`);
+}
+function reenableRunBtn() {
+  const btn=$('runBtn'); if(btn){ btn.disabled=false; btn.textContent='▶ Execute'; }
+}
+
+const demoLogs=[
+  {c:'log-dim',  t:'─────────── Phase 1: Detection ───────────'},
+  {c:'log-cyan', t:'[detect_drift] Calling AWS CFN API...'},
+  {c:'log-dim',  t:'Detection status: DETECTION_IN_PROGRESS'},
+  {c:'log-dim',  t:'Detection status: DETECTION_COMPLETE'},
+  {c:'log-cyan', t:'Found 2 drifted resource(s)'},
+  {c:'log-dim',  t:'─────────── Phase 2: Analysis ─────────────'},
+  {c:'log-cyan', t:'[analyze_drift] Calling LLaMA 3.3 via Groq...'},
+  {c:'log-ok',   t:'Root cause: Manual changes outside CloudFormation'},
+  {c:'log-warn', t:'[classify_risk] HIGH — AWS::EC2::SecurityGroup'},
+  {c:'log-dim',  t:'─────────── Phase 3: Planning ─────────────'},
+  {c:'log-warn', t:'[RETAIN] DeletionPolicy: Retain added to ALL resources'},
+  {c:'log-warn', t:'[RETAIN] UpdateReplacePolicy: Retain added'},
+  {c:'log-cyan', t:'[plan_remediation] Parsing YAML with CFNLoader'},
+  {c:'log-cyan', t:'[plan_remediation] Reading VpcId from live stack'},
+  {c:'log-ok',   t:'Synced template created — change set diff ready'},
+  {c:'log-dim',  t:'─────────── Phase 4: Approval ─────────────'},
+  {c:'log-warn', t:'[human_gate] Awaiting stakeholder approval...'},
+  {c:'log-ok',   t:'[human_gate] Approved by loknath'},
+  {c:'log-dim',  t:'─────────── Phase 5: Fix ──────────────────'},
+  {c:'log-cyan', t:'[apply_fix] Executing update_stack...'},
+  {c:'log-cyan', t:'[apply_fix] Passing parameter: VpcId'},
+  {c:'log-ok',   t:'Stack update complete ✅'},
+  {c:'log-dim',  t:'─────────── Phase 6: Validate ─────────────'},
+  {c:'log-ok',   t:'VALIDATE: PASSED — 0 drifted resources ✅'},
+  {c:'log-ok',   t:'AUDIT: Record 8ef600f03c7b86e6 → DynamoDB ✅'},
+];
+function demoRun(stack) {
+  $('runTitle').textContent=stack+' — Running (demo mode)';
+  let i=0;
+  const iv=setInterval(()=>{
+    if(i<demoLogs.length){ alog(demoLogs[i].t,demoLogs[i].c); $('runProg').style.width=Math.round((i+1)/demoLogs.length*100)+'%'; $('runStep').textContent=`Step ${i+1} of ${demoLogs.length}`; i++; }
+    else { clearInterval(iv); S.running=false; reenableRunBtn(); setRunStatus('Complete','b-green'); }
+  },220);
+}
+
+// ─── AUDIT ────────────────────────────────────────────────────────────────────
+function pgAudit() {
+  return `
+  <div class="section-hdr"><div class="section-title">Audit Trail</div><div style="display:flex;gap:6px"><span class="badge b-gray">DynamoDB: cfn-drift-audit</span><button class="btn btn-cyan" onclick="loadAll(this)">↻ Refresh</button></div></div>
+  <div class="panel">
+    ${S.audits.length===0?`<div style="padding:40px;text-align:center;color:var(--text3);font-family:var(--font-mono);font-size:10px">// NO_RECORDS — run the agent first</div>`:`
+    <table class="tbl"><thead><tr><th>Stack</th><th>Result</th><th>Risk</th><th>Drifted</th><th>Approver</th><th>Audit ID</th><th>Time</th></tr></thead><tbody>
+      ${S.audits.map(a=>`<tr>
+        <td class="stack-name">${a.stack_name||'—'}</td>
+        <td>${sb(a.fix_status)}</td>
+        <td>${rb(a.risk_level)}</td>
+        <td style="font-family:var(--font-mono);font-size:10px">${a.total_drifted||0}</td>
+        <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${a.approver||'—'}</td>
+        <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">${(a.record_id||'').slice(0,12)}...</td>
+        <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${ts(a.detection_timestamp)}</td>
+      </tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+// ─── SAFETY ───────────────────────────────────────────────────────────────────
+function pgSafety() {
+  const ks=S.safety.kill_switch==='true', cf=S.safety.change_freeze==='true';
+  const measures=['DeletionPolicy: Retain added to every resource before any fix','UpdateReplacePolicy: Retain — agent never replaces resources','Replacement detection — blocks change sets with Replacement=True','Stack state check — must be UPDATE_COMPLETE before proceeding','Circuit breaker — halts after 3 consecutive failures in 60 min','Resource exclusion list — SSM list of resources to skip','Maintenance window — only fixes during approved hours','S3 template snapshot — backup before every fix','Blast radius limit — max 5 stacks per scheduled run','Human gate — full diff shown, approval required every time'];
+  return `
+  <div class="section-hdr"><div class="section-title">Safety Controls</div></div>
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr"><span class="panel-title">Runtime controls — AWS SSM</span></div>
+    <div class="safety-item">
+      <div><div class="safety-label">Kill switch</div><div class="safety-desc">Halt ALL agent activity immediately</div><div class="safety-ssm">/cfn-drift-fixer/kill-switch → ${ks?'true':'false'}</div></div>
+      <div class="toggle ${ks?'on-r':''}" onclick="toggleSafety('kill')"></div>
+    </div>
+    <div class="safety-item">
+      <div><div class="safety-label">Change freeze</div><div class="safety-desc">Detect drift but never apply fixes</div><div class="safety-ssm">/cfn-drift-fixer/change-freeze → ${cf?'true':'false'}</div></div>
+      <div class="toggle ${cf?'on-a':''}" onclick="toggleSafety('freeze')"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">Built-in safety measures — always active</span></div>
+    ${measures.map((m,i)=>`<div class="check-item" style="${i===measures.length-1?'':''}">
+      <div class="check-circle"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div style="font-size:12px;color:var(--text2)">${m}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ─── COST ─────────────────────────────────────────────────────────────────────
+function pgCost() {
+  const gR=[['Model','llama-3.3-70b-versatile'],['Input','$0.59 / 1M tokens'],['Output','$0.79 / 1M tokens'],['Per run','~$0.0016 (~0.2 cents)'],['100 runs/month','~$0.16'],['Free tier','14,400 req/day ✅'],['Data in AWS?','❌ Goes to Groq US']];
+  const bR=[['Model','claude-sonnet-4-6-v1'],['Input','$3.00 / 1M tokens'],['Output','$15.00 / 1M tokens'],['Per run','~$0.0117 (~1.2 cents)'],['100 runs/month','~$1.40'],['Cached run','~$0.0079 (32% saving)'],['Data in AWS?','✅ Stays in AWS']];
+  const iR=[['Lambda executions','$0 (free tier)'],['DynamoDB audit','~$0.25/month'],['S3 snapshots','~$0.10/month'],['Bedrock LLM','~$1.62/month'],['SSM parameters','$0 (standard)'],['EventBridge','~$0.01/month']];
+  const row=(r)=>`<div class="cost-row"><span style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${r[0]}</span><span style="font-family:var(--font-mono);font-size:11px;color:${r[0]==='Data in AWS?'?(r[1].startsWith('❌')?'var(--red)':'var(--green)'):'var(--text)'}">${r[1]}</span></div>`;
+  return `
+  <div class="section-hdr"><div class="section-title">Cost Breakdown</div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+    <div class="panel" style="margin-bottom:0">
+      <div class="panel-hdr"><span class="panel-title">Groq — LLaMA 3.3 70B</span><span class="badge b-green">Free dev</span></div>
+      ${gR.map(row).join('')}
+    </div>
+    <div class="panel" style="margin-bottom:0">
+      <div class="panel-hdr"><span class="panel-title">Bedrock — Claude Sonnet 4.6</span><span class="badge b-amber">Production</span></div>
+      ${bR.map(row).join('')}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">Monthly infrastructure total</span></div>
+    ${iR.map(row).join('')}
+    <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border)">
+      <span style="font-family:var(--font-head);font-size:16px;font-weight:700;color:var(--text)">Total</span>
+      <span style="font-family:var(--font-head);font-size:22px;font-weight:800;color:var(--cyan)">~$2.00 / month</span>
+    </div>
+  </div>`;
+}
+
+// ─── PROFILE ──────────────────────────────────────────────────────────────────
+// Backed by real AWS identity (/api/whoami) and environment/config status —
+// there's no login system yet, so this is a session/environment profile
+// rather than a fabricated user account.
+function pgProfile() {
+  const w = S.whoami || {};
+  const id = w.identity || {};
+  const cfgRow = (label,val,ok) => `<div class="cost-row"><span style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${label}</span><span style="font-family:var(--font-mono);font-size:11px;color:${ok===true?'var(--green)':ok===false?'var(--red)':'var(--text)'}">${val}</span></div>`;
+  return `
+  <div class="section-hdr"><div class="section-title">Profile & Environment</div><button class="btn btn-cyan" onclick="loadWhoami()">↻ Refresh</button></div>
+  <div class="grid-main">
+    <div class="panel" style="margin-bottom:0">
+      <div class="panel-hdr"><span class="panel-title">AWS identity</span></div>
+      <div style="padding:16px">
+        ${!w.region ? `<div style="color:var(--text3);font-family:var(--font-mono);font-size:10px">Loading…</div>` :
+          id.error ? `<div style="color:var(--red);font-family:var(--font-mono);font-size:10px">${esc(id.error)}</div>` : `
+        ${cfgRow('Account', esc(id.account)||'—')}
+        ${cfgRow('User ID', esc(id.user_id)||'—')}
+        <div style="padding:10px 16px 4px;font-family:var(--font-mono);font-size:9px;color:var(--text3)">ARN</div>
+        <div style="padding:0 16px 12px;font-family:var(--font-mono);font-size:10px;color:var(--text2);word-break:break-all">${esc(id.arn)||'—'}</div>`}
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:0">
+      <div class="panel-hdr"><span class="panel-title">Session</span></div>
+      <div style="padding:24px 16px;text-align:center">
+        <div class="avatar" style="width:52px;height:52px;font-size:15px;margin:0 auto 12px">${(w.dashboard_user||'??').slice(0,2).toUpperCase()}</div>
+        <div style="font-family:var(--font-head);font-size:14px;font-weight:700;color:#fff">${esc(w.dashboard_user)||'Not signed in'}</div>
+        <div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:8px;line-height:1.6">Basic shared-credential login — a stopgap access gate, not per-user SSO/RBAC yet.</div>
+        <button class="btn btn-red" style="margin-top:14px" onclick="logout()">Sign out</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">Environment configuration</span></div>
+    ${cfgRow('Region', esc(w.region)||'—')}
+    ${cfgRow('LLM provider', esc(w.llm_provider)||'—', w.llm_configured)}
+    ${cfgRow('Slack notifications', w.slack_configured?'Configured':'Not configured — auto-approves in local test mode', w.slack_configured)}
+    ${cfgRow('DynamoDB audit table', esc(w.audit_table)||'—')}
+    ${cfgRow('S3 snapshot bucket', esc(w.snapshot_bucket)||'Not set', !!w.snapshot_bucket)}
+    ${cfgRow('Default execution mode', w.default_dry_run==='true'?'Dry run':'Live')}
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><span class="panel-title">Recent activity</span><span style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">last ${Math.min(S.audits.length,10)} of ${S.audits.length} — all sessions, no per-user tracking yet</span></div>
+    ${S.audits.length===0?`<div style="padding:24px;text-align:center;color:var(--text3);font-family:var(--font-mono);font-size:10px">// NO_RECORDS</div>`:`
+    <table class="tbl"><thead><tr><th>Stack</th><th>Result</th><th>Risk</th><th>Approver</th><th>Time</th></tr></thead><tbody>
+      ${S.audits.slice(0,10).map(a=>`<tr>
+        <td class="stack-name">${a.stack_name||'—'}</td>
+        <td>${sb(a.fix_status)}</td>
+        <td>${rb(a.risk_level)}</td>
+        <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${a.approver||'—'}</td>
+        <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${ts(a.detection_timestamp)}</td>
+      </tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────────
+function quickScan(name) {
+  nav('run',$('nav-run'));
+  setTimeout(()=>{ const s=$('rStack'); if(s){ s.value=name; setMode('dry'); doRun(); } },100);
+}
+function quickFix(name) {
+  nav('run',$('nav-run'));
+  setTimeout(()=>{ const s=$('rStack'); if(s){ s.value=name; setMode('live'); doRun(); } },100);
+}
+function doApprove(i) { if(i<S.approvals.length) S.approvals.splice(i,1); updateBadges(); render(); }
+function doReject(i)  { if(i<S.approvals.length) S.approvals.splice(i,1); updateBadges(); render(); }
+
+async function toggleSafety(key) {
+  const field = key==='kill' ? 'kill_switch' : 'change_freeze';
+  const path  = key==='kill' ? 'kill-switch' : 'change-freeze';
+  const cur   = S.safety[field]==='true';
+  const next  = !cur;
+  // Flip instantly — don't make the toggle wait on a network round-trip to
+  // visibly move. Revert only if the backend call actually fails.
+  S.safety[field] = next?'true':'false';
+  render();
+  try {
+    const r = await fetch(API+'/api/safety/'+path+'?active='+next,{method:'POST'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+  } catch(e) {
+    S.safety[field] = cur?'true':'false';
+    render();
+    alog && alog('ERROR: could not update '+field+' — '+e.message,'log-err');
+  }
+}
+
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeDriftModal(); });
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+loadDemo();
+goToPage(location.hash.slice(1) || 'dashboard', false);
+loadAll(); loadWhoami(); setInterval(loadAll,30000);
+</script>
+</body>
+</html>

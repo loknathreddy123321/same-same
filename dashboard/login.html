@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sign in — CFDF</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#04070F; --bg2:#080E1A; --panel:#0F1929; --panel2:#131F30;
+  --border:rgba(0,229,200,0.08); --border2:rgba(0,229,200,0.18);
+  --cyan:#00E5C8; --cyan2:#00B8A0; --cyan-dim:rgba(0,229,200,0.12);
+  --red:#FF4D6A; --red-dim:rgba(255,77,106,0.12);
+  --text:#C8D8EC; --text2:#6A8CAA; --text3:#2E4560;
+  --font-head:'Syne',sans-serif; --font-mono:'JetBrains Mono',monospace; --font-body:'Outfit',sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-body);overflow:hidden}
+body::before{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,229,200,0.008) 2px,rgba(0,229,200,0.008) 4px);
+  pointer-events:none;z-index:0
+}
+body::after{
+  content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(0,229,200,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,200,0.03) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0
+}
+.wrap{position:relative;z-index:1;height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.glow{position:absolute;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(0,229,200,0.14) 0%,transparent 70%);filter:blur(20px);pointer-events:none}
+
+.card{
+  position:relative;width:100%;max-width:380px;
+  background:var(--panel);border:1px solid var(--border2);border-radius:16px;
+  padding:36px 32px 32px;box-shadow:0 0 60px rgba(0,229,200,0.08),0 20px 60px rgba(0,0,0,0.4);
+  animation:riseIn .4s ease forwards;
+}
+@keyframes riseIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+.logo-row{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:26px}
+.brand-name{font-family:var(--font-head);font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.02em}
+.brand-name span{color:var(--cyan)}
+.brand-tag{font-family:var(--font-mono);font-size:9px;color:var(--text3);letter-spacing:.14em;text-transform:uppercase}
+
+.form-label{font-family:var(--font-mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;display:block}
+.field{margin-bottom:16px}
+.form-input{
+  width:100%;padding:11px 13px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;
+  color:var(--text);font-family:var(--font-mono);font-size:12px;outline:none;transition:border-color .2s,box-shadow .2s;
+}
+.form-input:focus{border-color:rgba(0,229,200,0.5);box-shadow:0 0 0 3px rgba(0,229,200,0.08)}
+
+.btn-signin{
+  width:100%;padding:12px;margin-top:6px;border-radius:8px;border:1px solid rgba(0,229,200,0.35);
+  background:linear-gradient(135deg,rgba(0,229,200,0.18),rgba(77,158,255,0.12));
+  color:var(--cyan);font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.06em;
+  cursor:pointer;transition:all .15s;text-transform:uppercase;
+}
+.btn-signin:hover{background:linear-gradient(135deg,rgba(0,229,200,0.28),rgba(77,158,255,0.18));box-shadow:0 0 24px rgba(0,229,200,0.15)}
+.btn-signin:disabled{opacity:.5;cursor:not-allowed}
+
+.err{
+  display:none;margin-bottom:14px;padding:9px 12px;background:var(--red-dim);border:1px solid rgba(255,77,106,0.25);
+  border-radius:6px;color:var(--red);font-family:var(--font-mono);font-size:10px;
+}
+.foot{margin-top:22px;text-align:center;font-family:var(--font-mono);font-size:9px;color:var(--text3);letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="glow"></div>
+  <div class="card">
+    <div class="logo-row">
+      <svg width="44" height="44" viewBox="0 0 36 36" fill="none">
+        <path d="M18 2L32 10V26L18 34L4 26V10L18 2Z" stroke="url(#lg1)" stroke-width="1.2" fill="none"/>
+        <path d="M18 8L28 14V22L18 28L8 22V14L18 8Z" stroke="rgba(0,229,200,0.3)" stroke-width="0.8" fill="rgba(0,229,200,0.04)"/>
+        <text x="18" y="22" text-anchor="middle" font-family="Syne" font-size="10" font-weight="800" fill="url(#lg2)">CF</text>
+        <circle cx="18" cy="2" r="1.5" fill="#00E5C8"/><circle cx="18" cy="34" r="1.5" fill="#00E5C8"/>
+        <defs>
+          <linearGradient id="lg1" x1="4" y1="2" x2="32" y2="34"><stop offset="0%" stop-color="#00E5C8"/><stop offset="100%" stop-color="#4D9EFF"/></linearGradient>
+          <linearGradient id="lg2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00E5C8"/><stop offset="100%" stop-color="#4D9EFF"/></linearGradient>
+        </defs>
+      </svg>
+      <div style="text-align:center">
+        <div class="brand-name">CF<span>DF</span></div>
+        <div class="brand-tag">Drift Fixer — sign in</div>
+      </div>
+    </div>
+
+    <div class="err" id="err"></div>
+
+    <form id="loginForm">
+      <div class="field">
+        <label class="form-label">Username</label>
+        <input class="form-input" id="username" autocomplete="username" autofocus>
+      </div>
+      <div class="field">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="password" type="password" autocomplete="current-password">
+      </div>
+      <button class="btn-signin" id="submitBtn" type="submit">Sign in</button>
+    </form>
+
+    <div class="foot">CFDF v1.0 · session-based access · not SSO</div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('loginForm');
+const err  = document.getElementById('err');
+const btn  = document.getElementById('submitBtn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username, password}),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(()=>({}));
+      throw new Error(body.detail || 'Invalid username or password');
+    }
+    window.location.href = '/';
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
+});
+</script>
+</body>
+</html>

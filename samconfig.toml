@@ -1,0 +1,31 @@
+# samconfig.toml
+# Repeatable SAM deployment config — no interactive prompts needed.
+# Run: sam build && sam deploy
+
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "cfn-drift-fixer"
+
+[default.build.parameters]
+use_container = false
+parallel       = true
+
+[default.deploy.parameters]
+template_file       = "infra/template.yaml"
+stack_name          = "cfn-drift-fixer"
+s3_prefix           = "cfn-drift-fixer"
+region              = "us-east-1"
+confirm_changeset   = true
+capabilities        = "CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = [
+    "Environment=prod",
+    "SlackChannelId=YOUR_CHANNEL_ID",
+    "DryRun=false",
+    "ScanIntervalHours=6"
+]
+tags = "Project=cfn-drift-fixer Environment=prod"
+
+[default.validate.parameters]
+template_file = "infra/template.yaml"

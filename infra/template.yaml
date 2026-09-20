@@ -1,0 +1,346 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CFN Drift Fixer — Agentic drift detection and remediation.
+  Uses Step Functions .waitForTaskToken for human approval (not Lambda polling).
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+
+  SlackBotToken:
+    Type: AWS::SSM::Parameter::Value<SecureString>
+    Default: /cfn-drift-fixer/slack-bot-token
+    NoEcho: true
+
+  SlackChannelId:
+    Type: String
+
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+
+  DryRun:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
+  ScanIntervalHours:
+    Type: Number
+    Default: 6
+
+Globals:
+  Function:
+    Runtime:     python3.12
+    Timeout:     540        # 9 min — detection poll + LLM + fix, with headroom
+    MemorySize:  512
+    CodeUri:     src/
+    Environment:
+      Variables:
+        AWS_REGION_NAME:          !Ref AWS::Region
+        DYNAMODB_AUDIT_TABLE:     !Ref AuditTable
+        DYNAMODB_APPROVAL_TABLE:  !Ref ApprovalTable
+        S3_SNAPSHOT_BUCKET:       !Ref SnapshotBucket
+        BEDROCK_MODEL_ID:         !Ref BedrockModelId
+        SLACK_BOT_TOKEN:          !Ref SlackBotToken
+        SLACK_CHANNEL_ID:         !Ref SlackChannelId
+        DRY_RUN:                  !Ref DryRun
+        APPROVAL_CALLBACK_URL:    !Sub "https://${ApprovalApi}.execute-api.${AWS::Region}.amazonaws.com/prod/approve"
+        SFN_STATE_MACHINE_ARN:    !Ref DriftFixerStateMachine
+
+Resources:
+
+  # ── Lambda: Drift Scanner (main agent) ────────────────────────────────────
+  DriftScannerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:                !Sub cfn-drift-scanner-${Environment}
+      Handler:                     handlers.drift_scanner.handler
+      ReservedConcurrentExecutions: 5
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt DLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action:
+              - cloudformation:DetectStackDrift
+              - cloudformation:DetectStackResourceDrift
+              - cloudformation:DescribeStackDriftDetectionStatus
+              - cloudformation:DescribeStackResourceDrifts
+              - cloudformation:DescribeStacks
+              - cloudformation:GetTemplate
+              - cloudformation:CreateChangeSet
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:DeleteChangeSet
+              - cloudformation:DescribeChangeSet
+              - bedrock:InvokeModel
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+              - dynamodb:UpdateItem
+              - s3:PutObject
+              - s3:GetObject
+              - ssm:GetParameter
+              - iam:PassRole
+            Resource: "*"
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: !Sub "rate(${ScanIntervalHours} hours)"
+            Input:    '{"source": "scheduler"}'
+            Enabled:  true
+
+  # ── Lambda: Approval Callback ─────────────────────────────────────────────
+  ApprovalCallbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:                !Sub cfn-drift-approval-${Environment}
+      Handler:                     handlers.approval_callback.handler
+      ReservedConcurrentExecutions: 20
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+              - states:SendTaskSuccess
+              - states:SendTaskFailure
+            Resource: "*"
+      Events:
+        ApprovalGet:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApprovalApi
+            Path:      /approve
+            Method:    GET
+
+  # ── API Gateway ───────────────────────────────────────────────────────────
+  ApprovalApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name:       !Sub cfn-drift-approval-api-${Environment}
+      StageName:  prod
+
+  # ── Step Functions: Human Approval Wait ───────────────────────────────────
+  # Used for MEDIUM/HIGH risk stacks.
+  # The scanner Lambda sends Slack message with task token embedded in URL.
+  # ApprovalCallbackFunction calls send_task_success/failure to resume.
+  DriftFixerStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub cfn-drift-fixer-${Environment}
+      RoleArn:          !GetAtt SFNExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "CFN Drift Fixer — human approval via .waitForTaskToken",
+          "StartAt": "RunAgent",
+          "States": {
+            "RunAgent": {
+              "Type": "Task",
+              "Resource": "${DriftScannerFunction.Arn}",
+              "ResultPath": "$.agentResult",
+              "Next": "CheckApprovalRequired",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "CheckApprovalRequired": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.agentResult.approval_required",
+                  "BooleanEquals": true,
+                  "Next": "WaitForHumanApproval"
+                }
+              ],
+              "Default": "Done"
+            },
+            "WaitForHumanApproval": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": "${DriftScannerFunction.Arn}",
+                "Payload": {
+                  "action": "human_gate",
+                  "task_token.$": "$$.Task.Token",
+                  "state.$": "$"
+                }
+              },
+              "HeartbeatSeconds": 1800,
+              "Next": "ApplyFix",
+              "Catch": [
+                {
+                  "ErrorEquals": ["REJECTED", "States.HeartbeatTimeout"],
+                  "Next": "NotifyRejection"
+                }
+              ]
+            },
+            "ApplyFix": {
+              "Type": "Task",
+              "Resource": "${DriftScannerFunction.Arn}",
+              "Parameters": {
+                "action":          "apply_and_validate",
+                "approval_status": "APPROVED",
+                "state.$":         "$"
+              },
+              "Next": "Done",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "NotifyRejection": {
+              "Type": "Pass",
+              "Result": {"status": "REJECTED"},
+              "Next": "Done"
+            },
+            "NotifyFailure": {
+              "Type": "Pass",
+              "Result": {"status": "FAILED"},
+              "Next": "Done"
+            },
+            "Done": {
+              "Type": "Succeed"
+            }
+          }
+        }
+
+  # ── IAM: Step Functions execution role ────────────────────────────────────
+  SFNExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub cfn-drift-fixer-sfn-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt DriftScannerFunction.Arn
+
+  # ── DynamoDB: Audit ────────────────────────────────────────────────────────
+  AuditTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:    !Sub cfn-drift-audit-${Environment}
+      BillingMode:  PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - {AttributeName: PK, AttributeType: S}
+        - {AttributeName: SK, AttributeType: S}
+      KeySchema:
+        - {AttributeName: PK, KeyType: HASH}
+        - {AttributeName: SK, KeyType: RANGE}
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── DynamoDB: Approval ─────────────────────────────────────────────────────
+  ApprovalTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:   !Sub cfn-drift-approvals-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: record_id, AttributeType: S}
+      KeySchema:
+        - {AttributeName: record_id, KeyType: HASH}
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── S3: Template Snapshots ─────────────────────────────────────────────────
+  SnapshotBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub cfn-drift-snapshots-${AWS::AccountId}-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: Expire90Days
+            Status: Enabled
+            ExpirationInDays: 90
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls:       true
+        BlockPublicPolicy:     true
+        IgnorePublicAcls:      true
+        RestrictPublicBuckets: true
+
+  # ── SQS: Dead Letter Queue ─────────────────────────────────────────────────
+  DLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:                !Sub cfn-drift-fixer-dlq-${Environment}
+      MessageRetentionPeriod:  1209600  # 14 days
+      KmsMasterKeyId:          alias/aws/sqs
+
+  # ── CloudWatch: Alarms ─────────────────────────────────────────────────────
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:          !Sub cfn-drift-fixer-errors-${Environment}
+      MetricName:         Errors
+      Namespace:          AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DriftScannerFunction
+      Statistic:          Sum
+      Period:             3600
+      EvaluationPeriods:  1
+      Threshold:          2
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData:   notBreaching
+
+  DLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:          !Sub cfn-drift-fixer-dlq-${Environment}
+      MetricName:         NumberOfMessagesSent
+      Namespace:          AWS/SQS
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DLQ.QueueName
+      Statistic:          Sum
+      Period:             300
+      EvaluationPeriods:  1
+      Threshold:          1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData:   notBreaching
+
+Outputs:
+  DriftScannerArn:
+    Value: !GetAtt DriftScannerFunction.Arn
+  ApprovalApiUrl:
+    Value: !Sub "https://${ApprovalApi}.execute-api.${AWS::Region}.amazonaws.com/prod/approve"
+  AuditTableName:
+    Value: !Ref AuditTable
+  SnapshotBucketName:
+    Value: !Ref SnapshotBucket
+  StateMachineArn:
+    Value: !Ref DriftFixerStateMachine
+  DLQUrl:
+    Value: !Ref DLQ

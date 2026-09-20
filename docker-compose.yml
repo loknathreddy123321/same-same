@@ -1,0 +1,17 @@
+services:
+  dashboard:
+    build: .
+    image: cfn-drift-fixer:latest
+    container_name: cfn-drift-fixer
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # On EC2, attach an IAM instance profile with the same permissions as
+    # DriftScannerFunction in infra/template.yaml — the container picks up
+    # credentials automatically via the instance metadata service, no keys
+    # needed here. Only uncomment this if running somewhere without an
+    # instance role (e.g. a laptop):
+    # volumes:
+    #   - ~/.aws:/root/.aws:ro
