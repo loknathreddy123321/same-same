@@ -5,12 +5,16 @@
 // same access pattern set up in deploy-iam-setup.sh).
 //
 // Required Jenkins configuration:
-//   - Credentials binding "aws-cfn-drift-fixer" (Amazon Web Services Credentials
-//     plugin) scoped to: ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability,
+//   - Credential "aws-cfn-drift-fixer", kind "Username with password":
+//     Username = AWS access key ID, Password = AWS secret access key.
+//     Scope it to: ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability,
 //     ecr:PutImage, ecr:InitiateLayerUpload, ecr:UploadLayerPart,
 //     ecr:CompleteLayerUpload, ecr:BatchGetImage, ssm:SendCommand,
-//     ssm:GetCommandInvocation. Not the account's admin user.
+//     ssm:GetCommandInvocation, sts:GetCallerIdentity, ec2:DescribeInstances.
+//     Not the account's admin user (see deploy-jenkins-iam-setup.sh).
 //   - Job parameters below (or set as environment in Jenkins folder config).
+//   - Bound per-stage via withCredentials(), not a pipeline-level environment
+//     block, to avoid Jenkins' Groovy-string-interpolation security warning.
 //
 // Required AWS-side prerequisites (one-time, not done by this pipeline):
 //   - ECR repo created: aws ecr create-repository --repository-name cfn-drift-fixer
@@ -30,10 +34,6 @@ pipeline {
         string(name: 'AWS_REGION',        defaultValue: 'ap-south-1',            description: 'AWS region')
         string(name: 'ECR_REPO_NAME',      defaultValue: 'cfn-drift-fixer',       description: 'ECR repository name')
         string(name: 'EC2_INSTANCE_TAG',   defaultValue: 'cfn-drift-fixer',       description: 'Value of the App tag on the target EC2 instance')
-    }
-
-    environment {
-        AWS_CREDS = credentials('aws-cfn-drift-fixer')
     }
 
     stages {
@@ -81,8 +81,13 @@ pipeline {
 
         stage('Push to ECR') {
             steps {
-                withEnv(["AWS_ACCESS_KEY_ID=${AWS_CREDS_USR}", "AWS_SECRET_ACCESS_KEY=${AWS_CREDS_PSW}", "AWS_DEFAULT_REGION=${AWS_REGION}"]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-cfn-drift-fixer',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
                     sh '''
+                        export AWS_DEFAULT_REGION="${AWS_REGION}"
                         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
                         ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
 
@@ -102,8 +107,13 @@ pipeline {
 
         stage('Deploy to EC2 via SSM') {
             steps {
-                withEnv(["AWS_ACCESS_KEY_ID=${AWS_CREDS_USR}", "AWS_SECRET_ACCESS_KEY=${AWS_CREDS_PSW}", "AWS_DEFAULT_REGION=${AWS_REGION}"]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-cfn-drift-fixer',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
                     sh '''
+                        export AWS_DEFAULT_REGION="${AWS_REGION}"
                         ECR_IMAGE=$(cat ecr_image.txt)
                         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
                         ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
