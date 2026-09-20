@@ -7,3 +7,10 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-south-1
+        awslogs-group: /cfn-drift-fixer/dashboard
+        awslogs-stream: dashboard
+        awslogs-create-group: "true"

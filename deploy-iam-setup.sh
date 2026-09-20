@@ -75,6 +75,12 @@ cat > app-policy.json << EOF
         "ecr:GetDownloadUrlForLayer"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "ContainerLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"],
+      "Resource": "arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:/cfn-drift-fixer/*"
     }
   ]
 }
