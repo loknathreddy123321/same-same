@@ -127,16 +127,22 @@ pipeline {
                           exit 1
                         fi
 
+                        cat > /tmp/ssm-params.json << JSONEOF
+{
+  "commands": [
+    "cd /opt/cfn-drift-fixer",
+    "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URI}",
+    "ECR_IMAGE=${ECR_IMAGE} docker compose -f docker-compose.prod.yml pull",
+    "ECR_IMAGE=${ECR_IMAGE} docker compose -f docker-compose.prod.yml up -d",
+    "docker image prune -f"
+  ]
+}
+JSONEOF
+
                         COMMAND_ID=$(aws ssm send-command \
                           --instance-ids "$INSTANCE_ID" \
                           --document-name "AWS-RunShellScript" \
-                          --parameters "commands=[
-                            \\"cd /opt/cfn-drift-fixer\\",
-                            \\"aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URI}\\",
-                            \\"ECR_IMAGE=${ECR_IMAGE} docker compose -f docker-compose.prod.yml pull\\",
-                            \\"ECR_IMAGE=${ECR_IMAGE} docker compose -f docker-compose.prod.yml up -d\\",
-                            \\"docker image prune -f\\"
-                          ]" \
+                          --parameters file:///tmp/ssm-params.json \
                           --region "${AWS_REGION}" \
                           --query 'Command.CommandId' --output text)
 
