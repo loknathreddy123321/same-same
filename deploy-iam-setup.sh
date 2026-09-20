@@ -64,6 +64,16 @@ cat > /tmp/app-policy.json << EOF
       "Effect": "Allow",
       "Action": ["bedrock:InvokeModel"],
       "Resource": "*"
+    },
+    {
+      "Sid": "EcrPull",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer"
+      ],
+      "Resource": "*"
     }
   ]
 }

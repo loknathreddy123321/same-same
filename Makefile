@@ -41,7 +41,8 @@ test:
 test-cov:
 	PYTHONPATH=src pytest tests/ -v --tb=short \
 		--cov=src --cov-report=term-missing \
-		--cov-report=html:htmlcov --cov-fail-under=70
+		--cov-report=html:htmlcov --cov-fail-under=70 \
+		--junitxml=test-results.xml
 	@echo "Coverage report: htmlcov/index.html"
 
 lint:
